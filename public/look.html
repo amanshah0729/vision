@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+<meta name="mrbd-web-app-capable" content="yes">
+<meta name="description" content="See what the phone camera sees, from the glasses">
+<title>Look</title>
+<style>
+/* Standalone on purpose. Vision does not belong inside the coding app — mixing
+   them is what made Sightline's chip row unpredictable. Add this as its own
+   web app: <bridge>/look.html?k=<token> */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 600px; height: 600px; overflow: hidden;
+  background: #000; color: #eaf6ff;
+  font: 400 22px/1.35 -apple-system, "SF Pro Text", system-ui, sans-serif;
+}
+:root { --accent: #00d4ff; --dim: #7d93a3; --bad: #ff6b6b; }
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 22px 24px; }
+.bar {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding-bottom: 14px; border-bottom: 2px solid #16323d; margin-bottom: 14px; flex: 0 0 auto;
+}
+.title { font-size: 30px; font-weight: 600; }
+.meta { font-size: 20px; color: var(--dim); white-space: nowrap; }
+.stage {
+  flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+  border: 2px solid #16323d; border-radius: 14px; overflow: hidden; margin-bottom: 12px;
+}
+.shot { max-width: 100%; max-height: 100%; object-fit: contain; }
+.note { color: var(--dim); font-size: 21px; text-align: center; padding: 20px; }
+.note.bad { color: var(--bad); }
+.chips { flex: 0 0 auto; display: flex; gap: 10px; }
+.chip {
+  flex: 1 1 0; min-height: 88px; border: 2px solid #16323d; border-radius: 14px;
+  background: transparent; color: #eaf6ff; font: inherit; font-size: 20px;
+}
+.chip:focus, .chip.focused {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0,212,255,.45); background: rgba(0,212,255,.10);
+}
+.hint { flex: 0 0 auto; font-size: 18px; color: var(--dim); padding-top: 10px; }
+</style>
+</head>
+<body>
+<section class="screen">
+  <header class="bar"><span class="title">Look</span><span id="meta" class="meta"></span></header>
+  <div class="stage">
+    <img id="shot" class="shot" alt="Latest camera frame" hidden>
+    <div id="note" class="note">Waiting for the camera…</div>
+  </div>
+  <div class="chips">
+    <button class="chip focusable" id="btn-shot">Take a frame</button>
+  </div>
+  <footer class="hint">▲▼ move · pinch to capture</footer>
+</section>
+<script>
+const TOKEN = (() => {
+  const k = new URL(location.href).searchParams.get('k');
+  if (k) { try { localStorage.setItem('look_token', k); } catch {} return k; }
+  try { return localStorage.getItem('look_token') || ''; } catch { return ''; }
+})();
+const TIMEOUT_MS = 20000;
+const $ = (id) => document.getElementById(id);
+let latestAt = 0, waiter = null;
+
+async function api(path, opts = {}) {
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(path + sep + 'k=' + encodeURIComponent(TOKEN), {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!res.ok) { const e = new Error(res.status); e.status = res.status; throw e; }
+  return res.json();
+}
+function note(msg, bad) {
+  const n = $('note');
+  n.textContent = msg;
+  n.className = 'note' + (bad ? ' bad' : '');
+  n.hidden = false;
+  $('shot').hidden = true;
+}
+function ago(ms) {
+  const s = Math.round((Date.now() - ms) / 1000);
+  return s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago';
+}
+function showShot(at, bytes) {
+  latestAt = at;
+  const img = $('shot');
+  img.src = '/api/sensors/still.jpg?k=' + encodeURIComponent(TOKEN) + '&t=' + at;
+  img.hidden = false;
+  $('note').hidden = true;
+  $('meta').textContent = Math.round((bytes || 0) / 1024) + ' KB · ' + ago(at);
+}
+function stopWait() { if (waiter) { clearInterval(waiter); waiter = null; } }
+
+/* Watch for a frame NEWER than the one already shown, so a stale shot from an
+   hour ago is never mistaken for the one just requested. */
+async function capture() {
+  stopWait();
+  const baseline = latestAt;
+  note('Asking the camera…');
+  try {
+    const d = await api('/api/sensors');
+    const cam = (d.devices || []).find((x) => (x.caps || []).includes('camera'));
+    if (!cam) { note('No camera client online. Open the Sensor Agent on your phone.', true); return; }
+    await api('/api/sensors/command', { method: 'POST', body: { action: 'camera.still', deviceId: cam.deviceId } });
+  } catch (e) {
+    note(e.status === 401 ? 'Token rejected — reopen with ?k=…' : 'Capture failed (' + e.message + ')', true);
+    return;
+  }
+  note('Waiting for the frame…');
+  const started = Date.now();
+  waiter = setInterval(async () => {
+    try {
+      const d = await api('/api/sensors');
+      if (d.still && d.still.at > baseline) { stopWait(); showShot(d.still.at, d.still.bytes); return; }
+    } catch {}
+    if (Date.now() - started > TIMEOUT_MS) {
+      stopWait();
+      // Far and away the usual cause, and nothing the bridge can do about it:
+      // iOS gives no background mode for the camera.
+      note('No frame came back. Is the phone unlocked with the app open?', true);
+    }
+  }, 500);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); capture(); }
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); $('btn-shot').focus(); }
+});
+$('btn-shot').addEventListener('click', capture);
+$('btn-shot').focus();
+if (!TOKEN) note('Missing token — open this with ?k=…', true);
+else capture();
+</script>
+</body>
+</html>

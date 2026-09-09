@@ -1,0 +1,12 @@
+node_modules/
+.env
+.token
+*.log
+.DS_Store
+# Xcode
+ios/**/build/
+ios/**/*.xcodeproj
+ios/**/*.xcworkspace
+ios/**/xcuserdata/
+.build/
+tools/swift-sensor/bin/

@@ -1,0 +1,23 @@
+# XcodeGen spec: `brew install xcodegen && xcodegen generate` produces the .xcodeproj,
+# which is gitignored on purpose — the spec is the source of truth, not the project file.
+name: SensorAgent
+options:
+  bundleIdPrefix: com.amanshah.glasses
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  SensorAgent:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Sensor Agent
+        UILaunchScreen: {}
+        # Dictation has to keep running when the screen goes off, otherwise the
+        # glasses lose the mic the moment the phone locks in a pocket.
+        UIBackgroundModes: [audio]
+        NSMicrophoneUsageDescription: Sends dictation to your glasses.
+        NSSpeechRecognitionUsageDescription: Turns what you say into prompts for your glasses.
+        NSCameraUsageDescription: Captures stills your glasses can see.

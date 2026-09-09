@@ -1,0 +1,104 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=600,height=600,initial-scale=1">
+<title>Sensor probe</title>
+<style>
+  /* Same platform rules as the app: 600x600, no scroll, black = transparent. */
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 600px; height: 600px; overflow: hidden; }
+  body {
+    background: #000; color: #e8e8e8;
+    font: 18px/1.3 -apple-system, system-ui, sans-serif;
+    padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  }
+  h1 { font-size: 20px; color: #7fd4ff; letter-spacing: .02em; }
+  #rows { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .r { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; }
+  .k { color: #9aa4ad; white-space: nowrap; }
+  .v { text-align: right; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .yes { color: #6ee7a0 }
+  .no  { color: #ff8f8f }
+  .meh { color: #ffd479 }
+  button {
+    min-height: 88px; width: 100%; font: 600 20px system-ui; color: #fff;
+    background: #14304a; border: 2px solid #2f6f9e; border-radius: 12px;
+  }
+  button:focus { outline: 3px solid #7fd4ff; outline-offset: 2px; }
+  video { width: 100%; height: 300px; object-fit: cover; border-radius: 12px; background: #111; }
+  #shot { display: none }
+</style>
+
+<h1>Glasses sensor probe</h1>
+<div id="rows"></div>
+<video id="shot" autoplay playsinline muted></video>
+<button id="go" class="focusable" autofocus>Request camera + mic</button>
+
+<script>
+  const rows = document.getElementById('rows');
+
+  // Paint a labelled result line. cls drives the colour so a glance is enough.
+  function put(k, v, cls = '') {
+    const el = document.createElement('div');
+    el.className = 'r';
+    el.innerHTML = '<span class="k"></span><span class="v ' + cls + '"></span>';
+    el.children[0].textContent = k;
+    el.children[1].textContent = v;
+    rows.appendChild(el);
+    return el.children[1];
+  }
+  const yn = (b) => (b ? ['yes', 'yes'] : ['NO', 'no']);
+
+  // --- Things we can read without asking permission -------------------------
+  put('secure context', ...yn(window.isSecureContext));
+  put('navigator.mediaDevices', ...yn(!!navigator.mediaDevices));
+  put('getUserMedia', ...yn(!!navigator.mediaDevices?.getUserMedia));
+  put('WebXR (navigator.xr)', ...yn(!!navigator.xr));
+  put('DeviceOrientation', ...yn('DeviceOrientationEvent' in window));
+  const devLine = put('devices seen', '…', 'meh');
+  const camLine = put('camera permission', '…', 'meh');
+  const resLine = put('getUserMedia result', 'not run yet', 'meh');
+
+  // enumerateDevices before permission returns entries with blank labels, but the
+  // *count and kinds* still tell us whether any capture hardware is exposed at all.
+  navigator.mediaDevices?.enumerateDevices?.().then((ds) => {
+    const kinds = {};
+    for (const d of ds) kinds[d.kind] = (kinds[d.kind] || 0) + 1;
+    const txt = Object.entries(kinds).map(([k, n]) => n + '\u00d7' + k.replace('input', 'in')).join(', ');
+    devLine.textContent = ds.length ? txt : 'none';
+    devLine.className = 'v ' + (ds.length ? 'yes' : 'no');
+  }).catch((e) => { devLine.textContent = 'err: ' + e.name; devLine.className = 'v no'; });
+
+  navigator.permissions?.query?.({ name: 'camera' }).then((s) => {
+    camLine.textContent = s.state;
+    camLine.className = 'v ' + (s.state === 'granted' ? 'yes' : s.state === 'denied' ? 'no' : 'meh');
+  }).catch(() => { camLine.textContent = 'unsupported'; camLine.className = 'v meh'; });
+
+  // --- The definitive test, behind a user gesture ---------------------------
+  // getUserMedia needs a real gesture, and the whole question is whether the
+  // glasses will even surface a permission prompt. A live preview is proof;
+  // an error *name* (NotAllowedError vs NotFoundError) tells us which wall we hit.
+  document.getElementById('go').addEventListener('click', async () => {
+    resLine.textContent = 'asking…';
+    resLine.className = 'v meh';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const v = stream.getVideoTracks()[0], a = stream.getAudioTracks()[0];
+      const s = v?.getSettings?.() || {};
+      resLine.textContent = 'VIDEO ' + (s.width || '?') + 'x' + (s.height || '?') + (a ? ' +audio' : '');
+      resLine.className = 'v yes';
+      const el = document.getElementById('shot');
+      el.style.display = 'block';
+      el.srcObject = stream;
+    } catch (e) {
+      resLine.textContent = e.name + ': ' + String(e.message).slice(0, 40);
+      resLine.className = 'v no';
+    }
+  });
+
+  // D-pad: Escape backs out to the app, Enter activates the focused button.
+  // Go *back* rather than to '/', so the app reloads with its ?k= token intact.
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') history.length > 1 ? history.back() : (location.href = '/' + location.search);
+  });
+  document.getElementById('go').focus();
+</script>
