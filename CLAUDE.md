@@ -19,26 +19,38 @@ mixed content is blocked.
 | `tools/fake-sensor.sh` | Impersonates the native client so the pipeline can be tested with no app. |
 | `public/look.html` | Standalone camera-stills web app. |
 | `public/probe.html` | Capability probe for the glasses browser. How the camera verdict was reached. |
-| `tools/capture/` | **Works today.** Swift CLI, one JPEG from any Mac-visible camera. No Xcode. |
+| `tools/capture/` | Mac/iPhone webcam stand-in. **Not the glasses.** See the warning below. |
 
-## If an agent needs to see something, use `tools/capture`
+## The goal is the GLASSES camera. Read this before building anything.
 
-This is the working path, and it sidesteps the entire blocked iOS thread:
+The point of this repo is that an agent sees **what Aman sees through the glasses**. A
+desk webcam is not that. `PROTOCOL.md` encodes the distinction deliberately: `camera` is
+the function, `glasses-camera` is the origin, and a stand-in must be visibly marked
+"so a desk test is never mistaken for the real thing."
 
-```bash
-tools/capture/bin/capture --out /tmp/shot.jpg      # built-in camera
-tools/capture/bin/capture --device "Aman" --out /tmp/p.jpg   # iPhone, Continuity
-```
+**`tools/capture` is a stand-in.** It grabs a frame from the MacBook camera or the iPhone
+via Continuity. It is genuinely useful for pointing an agent at a screen or a desk, and it
+needs no Xcode — but it does **not** advance glasses vision. Do not present it as if it
+does. (An earlier agent did exactly that, which is why this warning exists.)
 
-AVFoundation compiles against Command Line Tools, and Continuity Camera exposes the phone
-as an ordinary Mac capture device — so no Xcode, no developer account, no provisioning.
-Verified 2026-09-09: real 1920x1080 frames from both the built-in camera and the iPhone.
+## The real path: Meta Wearables Device Access Toolkit
 
-It is **not the glasses' camera** and needs the Mac awake with the phone nearby. See
-`tools/capture/README.md` for the KVO and warmup traps, both already paid for.
+Meta's DAT is in public developer preview and **Ray-Ban Display is supported for camera
+and photo capture**. This supersedes the old "the glasses camera is impossible" verdict,
+which was true only of the *browser*, and only before DAT shipped.
 
-A valid JPEG proves nothing — a black frame is valid too. Look at the image before
-believing a capture worked.
+- iOS SDK via Swift Package Manager → **needs full Xcode**. The disk-space work is on the
+  critical path for this, not for the old AVFoundation design.
+- Needs a Meta developer account and Developer Mode enabled via the Meta AI app.
+- Solo dev running a build on their own glasses is supported. Publishing is not, during
+  preview — irrelevant for personal use.
+- **`MockDeviceKit` tests without physical glasses**, so integration can start before
+  hardware and permissions are sorted.
+
+`ios/SensorAgent` was written against the wrong assumption: AVFoundation capturing the
+*phone's* camera. The fix is to swap its capture layer for DAT reading the *glasses*
+camera. `PROTOCOL.md` already anticipated this and needs no change — it has the
+`glasses-camera` capability designed in.
 
 ## State of this repo — read before promising anything
 
