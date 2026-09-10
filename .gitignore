@@ -10,3 +10,4 @@ ios/**/*.xcworkspace
 ios/**/xcuserdata/
 .build/
 tools/swift-sensor/bin/
+tools/capture/bin/

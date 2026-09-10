@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Embedded into the binary's __TEXT,__info_plist section at link time. A bare CLI
+     has no bundle, so without this: the TCC prompt shows no reason, and macOS refuses
+     to hand over Continuity Camera as a first-class device type. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>local.glasses.vision.capture</string>
+  <key>CFBundleName</key>
+  <string>capture</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Captures a still image so a local coding agent can see what you are looking at.</string>
+  <key>NSCameraUseContinuityCameraDeviceType</key>
+  <true/>
+</dict>
+</plist>

@@ -19,6 +19,26 @@ mixed content is blocked.
 | `tools/fake-sensor.sh` | Impersonates the native client so the pipeline can be tested with no app. |
 | `public/look.html` | Standalone camera-stills web app. |
 | `public/probe.html` | Capability probe for the glasses browser. How the camera verdict was reached. |
+| `tools/capture/` | **Works today.** Swift CLI, one JPEG from any Mac-visible camera. No Xcode. |
+
+## If an agent needs to see something, use `tools/capture`
+
+This is the working path, and it sidesteps the entire blocked iOS thread:
+
+```bash
+tools/capture/bin/capture --out /tmp/shot.jpg      # built-in camera
+tools/capture/bin/capture --device "Aman" --out /tmp/p.jpg   # iPhone, Continuity
+```
+
+AVFoundation compiles against Command Line Tools, and Continuity Camera exposes the phone
+as an ordinary Mac capture device — so no Xcode, no developer account, no provisioning.
+Verified 2026-09-09: real 1920x1080 frames from both the built-in camera and the iPhone.
+
+It is **not the glasses' camera** and needs the Mac awake with the phone nearby. See
+`tools/capture/README.md` for the KVO and warmup traps, both already paid for.
+
+A valid JPEG proves nothing — a black frame is valid too. Look at the image before
+believing a capture worked.
 
 ## State of this repo — read before promising anything
 
