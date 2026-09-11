@@ -52,9 +52,27 @@ Worth knowing before touching that file:
 - **Ask for less bandwidth, get a better picture.** DAT degrades quality to fit Bluetooth
   Classic. Requesting `.medium`/15fps yields a cleaner still than requesting `.high` and
   being throttled into it.
+- **Subscribe to session and stream state *before* calling `start()`.** DAT does not replay
+  the current state to a late listener, so watching `stateStream()` after `start()` silently
+  misses `.started`/`.streaming` and hangs. `GlassesCamera` and Meta's own sample both attach
+  the listener first.
+- **Warm the `AutoDeviceSelector` before `createSession`.** A freshly-made selector reports no
+  active device for a beat; a session created in that beat throws `noEligibleDevice`.
 - `Foundation.Stream` collides with `MWDATCamera.Stream`. Qualify it.
 - `MWDAT.MetaAppID = "0"` is the documented Developer Mode value; it only needs a real
   application id for builds that leave this machine.
+
+## `configure()` at launch, and the keychain — both non-obvious, both found by running
+
+- **`Wearables.configure()` must run once at app launch** (`SensorAgentApp.init`, via
+  `DAT.configureOnce`). `Wearables.shared` traps until it has. Calling it later — lazily on
+  first capture, or from a test method — throws `internalError` and leaves `shared` trapping.
+  Meta's sample configures in its `@main` init for exactly this reason.
+- **DAT's `configure()` touches the keychain**, so the app must be **signed** with a
+  `keychain-access-groups` entitlement (`SensorAgent.entitlements`, generated from
+  `project.yml`). Ad-hoc (`-`) signing is enough on the simulator. Building with
+  `CODE_SIGNING_ALLOWED=NO` compiles fine but the unsigned app has no keychain access, so
+  `configure()` fails `internalError` at runtime and no capture works. **Build ≠ run here.**
 
 `PROTOCOL.md` needed no change — it had `glasses-camera` designed in from the start.
 
@@ -62,22 +80,28 @@ Worth knowing before touching that file:
 
 Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
 
-- **Nothing here has ever touched real glasses.** The app compiles clean against the real
-  DAT API; that is all. Registration, permissions, pairing and capture are all unexercised.
-  "Compiles" is not "works" — say which one you mean.
-- **`MockDeviceKit` is linked but unused.** Nothing calls `MockDeviceKit.shared.enable()`
-  or `pairGlasses(model:)`. Wiring that up is the next step and the only way to exercise
-  `GlassesCamera` without hardware or a Meta account.
+- **Still no *real* glasses.** The DAT capture path is now exercised end to end — but against
+  `MockDeviceKit`, not hardware. Registration, permission and pairing against a real pair, and
+  a real Bluetooth capture, remain unexercised. The mock proves the code; it does not prove the
+  device. Say which one you mean.
+- **`MockDeviceKit` is wired and covered.** `GlassesMock` stands a fake Ray-Ban up (pair →
+  powerOn → unfold → don → video feed + captured still), and `GlassesMockCaptureTests` drives
+  the real `GlassesCamera` path against it — session → stream → `capturePhoto` — and asserts a
+  JPEG comes back. It passes on the simulator. Toggle it in the app under **Debug → Mock
+  glasses**; a mock session reports as a stand-in (plain `["mic","camera"]`) and every frame is
+  stamped "MOCK GLASSES".
 - **Access needs Aman, not an agent.** A Meta developer account, accepted Developer Terms,
   Developer Mode on in the Meta AI app, then two in-app approvals on his phone. No part of
-  that is scriptable. Do not claim to have access.
+  that is scriptable. Do not claim to have access. This is the only thing between the mock and
+  a real capture.
 - **There is no host process here.** `sensors.js` used to be mounted into Sightline's
   `server.js`, which supplied the HTTP server, the token gate, and the lockout. Pulling it
   out left the handler without a host. Nothing in this repo currently runs. Standing one up
   means reimplementing auth — do not just expose `handleSensors` unauthenticated.
 
 What *is* verified: the protocol layer end to end, via `tools/swift-sensor` against the
-running bridge; and that the whole iOS target builds.
+running bridge; the whole iOS target builds; and the glasses-camera DAT path produces a JPEG
+end to end against `MockDeviceKit`, via `GlassesMockCaptureTests` on the simulator.
 
 ## Toolchain
 

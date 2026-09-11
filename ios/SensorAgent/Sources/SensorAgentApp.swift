@@ -4,6 +4,13 @@ import SwiftUI
 
 @main
 struct SensorAgentApp: App {
+    /// DAT must be configured once, here, at launch. Configuring later — lazily on the first
+    /// capture, or from a test — throws `internalError` and leaves `Wearables.shared` trapping.
+    /// This mirrors Meta's sample, which calls `Wearables.configure()` in its `@main` init.
+    init() {
+        DAT.configureOnce()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -37,6 +44,28 @@ struct ContentView: View {
                     LabeledContent("State", value: agent.status)
                     if !agent.lastTranscript.isEmpty {
                         LabeledContent("Heard", value: agent.lastTranscript)
+                    }
+                }
+                // A stand-in for hardware, not a shortcut around it. Locked while running so
+                // the caps a session advertised cannot change out from under the bridge.
+                Section("Debug") {
+                    Toggle("Mock glasses (no hardware)", isOn: $agent.useMockGlasses)
+                        .disabled(agent.running)
+                    if agent.useMockGlasses {
+                        Text("Captures return a frame stamped MOCK and the session reports as "
+                             + "a stand-in, never the real glasses.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    // Standalone capture: no bridge, no command loop. The first real capture
+                    // triggers the Meta AI registration + camera approvals.
+                    Button("Capture now") { agent.captureNow() }
+                        .frame(maxWidth: .infinity)
+                    if let image = agent.lastImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 300)
                     }
                 }
                 Section {

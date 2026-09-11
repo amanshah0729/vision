@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Wires the protocol client to the phone's capture hardware. Everything platform-specific
 /// lives here; `BridgeClient` stays Foundation-only so the same file serves the macOS
@@ -12,6 +13,13 @@ final class AgentController: ObservableObject {
     @Published var running = false
     @Published var status = "idle"
     @Published var lastTranscript = ""
+    /// The most recent still, shown inline so a capture can be confirmed on the phone without
+    /// a bridge or the glasses web app. Drives the "Capture now" test button.
+    @Published var lastImage: UIImage?
+    /// Off by default. When on, `start()` stands a fake pair of glasses up via `GlassesMock`
+    /// so the DAT capture path runs with no hardware and no Meta account. A mock session is
+    /// advertised as a stand-in (see the caps below), never as the real glasses.
+    @Published var useMockGlasses = UserDefaults.standard.bool(forKey: "useMockGlasses")
 
     private var task: Task<Void, Never>?
     private let dictation = Dictation()
@@ -34,17 +42,25 @@ final class AgentController: ObservableObject {
         }
         UserDefaults.standard.set(baseURL, forKey: "baseURL")
         UserDefaults.standard.set(token, forKey: "token")
+        UserDefaults.standard.set(useMockGlasses, forKey: "useMockGlasses")
+
+        // Stand the fake glasses up before the caps are decided, so `ensureAccess` finds a
+        // registered mock device already granted the camera permission.
+        if useMockGlasses { GlassesMock.enable() }
 
         running = true
-        status = "connecting…"
+        status = useMockGlasses ? "connecting… (mock glasses)" : "connecting…"
 
         let client = BridgeClient(
             base: url, token: token, deviceId: deviceId,
-            name: UIDevice.current.name,
-            // `glasses-camera` because stills now come off the glasses via DAT. The mic is
-            // still the phone's, so it stays unprefixed — the web app is meant to be able to
-            // tell those apart at a glance.
-            caps: [.mic, .camera, .glassesCamera]
+            // The name carries the stand-in marker too, so a glance at `GET /api/sensors`
+            // reveals it even before the caps are inspected.
+            name: useMockGlasses ? "\(UIDevice.current.name) (mock)" : UIDevice.current.name,
+            // Real build: `glasses-camera`, because stills come off the glasses via DAT. Mock
+            // build: a stand-in, so per PROTOCOL.md it reports plain `["mic","camera"]` and the
+            // web app marks it — a desk test must never be mistaken for the real thing. The mic
+            // is always the phone's, so it stays unprefixed either way.
+            caps: useMockGlasses ? [.mic, .camera] : [.mic, .camera, .glassesCamera]
         )
 
         dictation.onText = { [weak self] text, isFinal in
@@ -69,6 +85,28 @@ final class AgentController: ObservableObject {
         camera.stop()
         running = false
         status = "idle"
+    }
+
+    /// Take one still right now and show it, with no bridge and no `camera.still` command in the
+    /// loop. This is the standalone way to confirm the glasses camera works: on a real phone the
+    /// first call triggers the Meta AI registration + camera approvals, then a photo comes back.
+    /// Honours the mock toggle, so the same button proves the path with or without hardware.
+    func captureNow() {
+        if useMockGlasses { GlassesMock.enable() }
+        Task { @MainActor in
+            status = useMockGlasses ? "capturing… (mock)" : "capturing…"
+            do {
+                if useMockGlasses { await GlassesMock.awaitReady() }
+                try await GlassesCamera.ensureAccess()
+                let jpeg = try await camera.capture()
+                lastImage = UIImage(data: jpeg)
+                status = "captured \(jpeg.count) bytes"
+            } catch {
+                // The camera surfaces actionable reasons — "approve Sensor Agent in the Meta AI
+                // app", "hinges closed" — so show them rather than a generic failure.
+                status = error.localizedDescription
+            }
+        }
     }
 
     private func handle(_ command: BridgeCommand, client: BridgeClient) async {

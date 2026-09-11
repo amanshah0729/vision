@@ -21,6 +21,15 @@ targets:
     type: application
     platform: iOS
     sources: [Sources]
+    # DAT's `Wearables.configure()` stores state in the keychain; without a keychain access
+    # group the SecItem calls fail and configure() throws `internalError`, which traps
+    # `Wearables.shared`. The app must therefore be signed (ad-hoc is enough on the simulator)
+    # with this entitlement — `CODE_SIGNING_ALLOWED=NO` builds it but cannot run capture.
+    entitlements:
+      path: SensorAgent.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(CFBundleIdentifier)
     dependencies:
       - package: MWDAT
         product: MWDATCore
@@ -65,3 +74,26 @@ targets:
           MetaAppID: "0"
           ClientToken: ""
           TeamID: $(DEVELOPMENT_TEAM)
+
+  # Hosted by the app so `@testable import SensorAgent` can reach `GlassesCamera` and
+  # `GlassesMock`, and so the mock's DAT session runs in a real app process on the sim.
+  SensorAgentTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    # Signing the app (needed for the keychain entitlement) also signs the test bundle, which
+    # then needs its own Info.plist. Let Xcode synthesize one rather than track a second plist.
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: SensorAgent
+
+schemes:
+  SensorAgent:
+    build:
+      targets:
+        SensorAgent: all
+        SensorAgentTests: [test]
+    test:
+      targets:
+        - SensorAgentTests

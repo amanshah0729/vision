@@ -10,6 +10,7 @@ ios/**/*.xcodeproj
 ios/**/*.xcworkspace
 ios/**/xcuserdata/
 ios/**/Info.plist
+ios/**/*.entitlements
 .build/
 tools/swift-sensor/bin/
 tools/capture/bin/

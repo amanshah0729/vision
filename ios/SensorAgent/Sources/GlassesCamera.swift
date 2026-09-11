@@ -47,6 +47,9 @@ final class GlassesCamera {
     /// on a human tapping approve, so this can sit for a long time. Call it once up front,
     /// never in the middle of serving a `camera.still`.
     static func ensureAccess() async throws {
+        // `Wearables.shared` traps until DAT is configured; this is the real path's bring-up
+        // point. In mock mode `GlassesMock.enable()` has already run it, so this is a no-op.
+        DAT.configureOnce()
         let wearables = Wearables.shared
 
         if wearables.registrationState != .registered {
@@ -133,18 +136,39 @@ final class GlassesCamera {
         let wearables = Wearables.shared
         // AutoDeviceSelector rather than a pinned id: the user may have more than one pair
         // linked, and which one is active is Meta AI's call, not ours.
-        let session = try wearables.createSession(
-            deviceSelector: AutoDeviceSelector(wearables: wearables))
+        //
+        // A freshly-made selector reports no active device for a beat while it observes what
+        // is connected; `createSession` against it in that beat throws `noEligibleDevice`. So
+        // warm the *same* selector instance first, then hand it over — the mock exposes this
+        // race plainly (the device appears only after powerOn/unfold settles) but it is real on
+        // hardware too, where a pair can connect a moment after the app asks.
+        let selector = AutoDeviceSelector(wearables: wearables)
+        try await Self.bounded(10, "device selection") {
+            while selector.activeDevice == nil && !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+        guard selector.activeDevice != nil else { throw Failure.sessionEnded }
+
+        let session = try wearables.createSession(deviceSelector: selector)
         self.session = session
 
-        try session.start()
-        try await Self.bounded(30, "session start") {
-            for await state in session.stateStream() {
-                if state == .started { return Result<Void, Failure>.success(()) }
-                if state == .stopped { return .failure(.sessionEnded) }
+        // Subscribe *before* start() so the `.started` transition can't be missed — the same
+        // rule the stream below follows, and one Meta's sample calls out explicitly. The old
+        // code iterated `stateStream()` after start(), which dropped the transition and hung.
+        let live = Inbox<Result<Void, Failure>>()
+        let token = session.statePublisher.listen { state in
+            switch state {
+            case .started: live.deliver(.success(()))
+            case .stopped: live.deliver(.failure(.sessionEnded))
+            default:       break
             }
-            return .failure(.sessionEnded)
-        }.get()
+        }
+        tokens.append(token)
+
+        try session.start()
+        if session.state == .started { live.deliver(.success(())) } // already-started race
+        try await Self.bounded(30, "session start") { await live.wait() }.get()
         return session
     }
 
