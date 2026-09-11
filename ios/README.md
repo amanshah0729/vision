@@ -81,6 +81,19 @@ stand-in (`["mic","camera"]`, no `glasses-` caps) and every frame is stamped "MO
 so it is never mistaken for the real thing. The mock is `#if DEBUG`-free on purpose: it is
 gated behind an explicit `enable()` call, inert otherwise, so it can ship in the same binary.
 
+## Camera PoC — measuring the link
+
+**Main screen → "Camera PoC — live feed + latency."** A standalone harness (`CameraPoC` +
+`CameraPoCView`, no bridge) that opens the DAT video stream and shows fps, a photo-capture
+round-trip time, and resolution / frame-rate knobs. The point is to *feel* the real link:
+wave your hand and watch the lag, drop the resolution and watch fps climb.
+
+**The numbers only mean something on real glasses.** Against the mock the pipeline reaches
+`.streaming` but no synthetic video frames arrive (a MockDeviceKit 0.9.0 limitation), so the
+live view stays blank on the simulator — `CameraPoCStreamTests` asserts only that it reaches
+`.streaming`. On device: run signed (same ad-hoc invocation as above), open the PoC, tap
+**Start stream**, approve the Meta AI prompts once, and the feed + fps/latency come alive.
+
 ## Test without a phone
 
 `tools/swift-sensor` is `BridgeClient` with capture faked — the fastest way to confirm the

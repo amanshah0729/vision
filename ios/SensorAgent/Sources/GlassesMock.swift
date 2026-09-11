@@ -20,6 +20,8 @@ import UIKit
 enum GlassesMock {
     /// The paired mock, held so it is not deallocated and so `disable()` can unpair it.
     private(set) static var glasses: (any MockGlasses)?
+    /// The generated feed, kept so it can be re-applied once a camera exists (see `reapplyFeed`).
+    private(set) static var feedURL: URL?
 
     /// Idempotent. Enables `MockDeviceKit`, pairs one mock Ray-Ban, powers it on and dons it so
     /// an `AutoDeviceSelector` session finds an eligible device, gives it a video feed (without
@@ -57,10 +59,19 @@ enum GlassesMock {
         // The live feed keeps the stream in `.streaming`; the captured image is what a photo
         // returns. Both are the same stamped frame.
         if let feed = placeholderFeedURL(image) {
+            feedURL = feed
             paired.services.camera.setCameraFeed(fileURL: feed)
         }
         paired.services.camera.setCapturedImage(fileURL: placeholderStillURL(image))
         glasses = paired
+    }
+
+    /// Re-applies the generated feed to the paired mock's camera. Setting the feed once at pair
+    /// time keeps the stream in `.streaming`, but the mock only pumps *video frames* once a
+    /// camera exists on the session — so the live-view path must re-apply it after `addCamera`.
+    static func reapplyFeed() {
+        guard let glasses, let feedURL else { return }
+        glasses.services.camera.setCameraFeed(fileURL: feedURL)
     }
 
     /// Blocks until DAT would actually pick the mock for a session, so a capture that follows
@@ -147,11 +158,15 @@ enum GlassesMock {
         guard writer.startWriting() else { return nil }
         writer.startSession(atSourceTime: .zero)
 
-        guard let buffer = pixelBuffer(from: cg, size: size) else { return nil }
         let fps: Int32 = 15
-        let frames = Int(fps) * 2 // two seconds; the mock loops it
+        let frames = Int(fps) * 3 // three seconds of actual motion; the mock loops it
         for i in 0..<frames {
             while !input.isReadyForMoreMediaData { usleep(2_000) }
+            // Distinct frames — a bar sweeping across the stamp — so the encoder produces a
+            // normal video with motion. A clip of one identical repeated frame reaches
+            // `.streaming` but the mock serves no frames off it.
+            guard let buffer = pixelBuffer(from: cg, size: size, sweep: CGFloat(i) / CGFloat(frames))
+            else { continue }
             adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: fps))
         }
         input.markAsFinished()
@@ -165,8 +180,9 @@ enum GlassesMock {
         return writer.status == .completed ? url : nil
     }
 
-    /// One `CVPixelBuffer` from a `CGImage`, drawn into an ARGB buffer for the writer adaptor.
-    private static func pixelBuffer(from cg: CGImage, size: CGSize) -> CVPixelBuffer? {
+    /// One `CVPixelBuffer` for frame `sweep` (0…1): the stamped image plus a vertical bar at
+    /// that horizontal position, so consecutive frames differ and the encoder emits real motion.
+    private static func pixelBuffer(from cg: CGImage, size: CGSize, sweep: CGFloat) -> CVPixelBuffer? {
         var pb: CVPixelBuffer?
         let attrs: CFDictionary = [
             kCVPixelBufferCGImageCompatibilityKey: true,
@@ -186,6 +202,8 @@ enum GlassesMock {
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
         ) else { return nil }
         ctx.draw(cg, in: CGRect(origin: .zero, size: size))
+        ctx.setFillColor(UIColor(white: 1, alpha: 0.5).cgColor)
+        ctx.fill(CGRect(x: sweep * size.width, y: 0, width: 48, height: size.height))
         return buffer
     }
 }

@@ -68,6 +68,11 @@ struct ContentView: View {
                             .frame(maxHeight: 300)
                     }
                 }
+                Section("Proof of concept") {
+                    NavigationLink("Camera PoC — live feed + latency") {
+                        CameraPoCView()
+                    }
+                }
                 Section {
                     Button(agent.running ? "Stop" : "Start") {
                         agent.running ? agent.stop() : agent.start()

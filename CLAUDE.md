@@ -99,9 +99,19 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   out left the handler without a host. Nothing in this repo currently runs. Standing one up
   means reimplementing auth — do not just expose `handleSensors` unauthenticated.
 
+- **There is a live-camera PoC** (`CameraPoC` + `CameraPoCView`, reachable from the main
+  screen). It opens the DAT video stream and shows fps, a photo capture round-trip time, and
+  resolution/frame-rate knobs — a standalone harness for measuring how bad the real link is,
+  no bridge. **The numbers only exist on hardware.** Against the mock the pipeline reaches
+  `.streaming` but `MockDeviceKit` 0.9.0 emits no synthetic video frames off `setCameraFeed`
+  (confirmed: valid feed, `.streaming`, zero frames), so `videoFramePublisher` — hence the live
+  view, fps and latency — is exercised only on real glasses. `.hvc1` is the streaming codec
+  (`.raw` serves photos but no video frames).
+
 What *is* verified: the protocol layer end to end, via `tools/swift-sensor` against the
-running bridge; the whole iOS target builds; and the glasses-camera DAT path produces a JPEG
-end to end against `MockDeviceKit`, via `GlassesMockCaptureTests` on the simulator.
+running bridge; the whole iOS target builds; the glasses-camera DAT path produces a JPEG
+end to end against `MockDeviceKit` (`GlassesMockCaptureTests`); and the live-stream pipeline
+comes up to `.streaming` against the mock (`CameraPoCStreamTests`) — both on the simulator.
 
 ## Toolchain
 
