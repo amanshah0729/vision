@@ -15,7 +15,7 @@ final class AgentController: ObservableObject {
 
     private var task: Task<Void, Never>?
     private let dictation = Dictation()
-    private let camera = StillCapture()
+    private let camera = GlassesCamera()
 
     /// One stable id per install, as PROTOCOL.md requires. Regenerating it on every
     /// launch would leave the bridge showing phantom devices until their TTL expired.
@@ -37,14 +37,14 @@ final class AgentController: ObservableObject {
 
         running = true
         status = "connecting…"
-        camera.configure()
 
         let client = BridgeClient(
             base: url, token: token, deviceId: deviceId,
             name: UIDevice.current.name,
-            // No glasses- prefixes: the phone is a stand-in and the web app is meant
-            // to show it as one rather than pass it off as the real sensors.
-            caps: [.mic, .camera]
+            // `glasses-camera` because stills now come off the glasses via DAT. The mic is
+            // still the phone's, so it stays unprefixed — the web app is meant to be able to
+            // tell those apart at a glance.
+            caps: [.mic, .camera, .glassesCamera]
         )
 
         dictation.onText = { [weak self] text, isFinal in
@@ -52,8 +52,10 @@ final class AgentController: ObservableObject {
             Task { try? await client.postTranscript(text, final: isFinal) }
         }
 
+        // Both closures capture `self` weakly in their own right. Letting the inner one
+        // reach through the outer one's captured variable is an error under Swift 6.
         task = Task { [weak self] in
-            await client.run { command in
+            await client.run { [weak self] command in
                 await self?.handle(command, client: client)
             }
         }
@@ -81,15 +83,18 @@ final class AgentController: ObservableObject {
             dictation.stop()
             await set(status: "online")
         case "camera.still":
-            guard await StillCapture.requestPermission() else {
-                await set(status: "camera denied in Settings"); return
-            }
             await set(status: "capturing")
-            let jpeg: Data? = await withCheckedContinuation { c in
-                camera.capture { c.resume(returning: $0) }
+            do {
+                // Both of these surface real, actionable reasons — "approve Sensor Agent in
+                // the Meta AI app", "hinges closed" — so the message is shown rather than
+                // flattened into a generic failure the user cannot act on.
+                try await GlassesCamera.ensureAccess()
+                let jpeg = try await camera.capture()
+                try await client.postStill(jpeg)
+                await set(status: "online")
+            } catch {
+                await set(status: error.localizedDescription)
             }
-            if let jpeg { try? await client.postStill(jpeg) }
-            await set(status: jpeg == nil ? "capture failed" : "online")
         default:
             break
         }

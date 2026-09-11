@@ -4,20 +4,64 @@ name: SensorAgent
 options:
   bundleIdPrefix: com.amanshah.glasses
   deploymentTarget:
-    iOS: "17.0"
+    # 17.2, not 17.0: the MWDAT binary frameworks are built against 17.2 and the linker
+    # warns on every build otherwise. DAT is the whole point of this app, so its floor wins.
+    iOS: "17.2"
+
+packages:
+  # Meta Wearables Device Access Toolkit — the only supported route to the glasses
+  # camera. Pinned exactly because 0.9.0 is a developer preview and its API is not
+  # stable; a caret range would let a breaking minor land silently.
+  MWDAT:
+    url: https://github.com/facebook/meta-wearables-dat-ios
+    exactVersion: 0.9.0
+
 targets:
   SensorAgent:
     type: application
     platform: iOS
     sources: [Sources]
+    dependencies:
+      - package: MWDAT
+        product: MWDATCore
+      - package: MWDAT
+        product: MWDATCamera
+      # MockDevice ships in the shipping binary on purpose: it is the only way to
+      # exercise the glasses code path without glasses, and DAT gates it behind an
+      # explicit enable() call so it stays inert unless asked for.
+      - package: MWDAT
+        product: MWDATMockDevice
     info:
       path: Info.plist
       properties:
         CFBundleDisplayName: Sensor Agent
         UILaunchScreen: {}
         # Dictation has to keep running when the screen goes off, otherwise the
-        # glasses lose the mic the moment the phone locks in a pocket.
-        UIBackgroundModes: [audio]
+        # glasses lose the mic the moment the phone locks in a pocket. The three
+        # bluetooth/processing modes are DAT's requirement, not ours — the glasses
+        # link drops without them.
+        UIBackgroundModes: [audio, processing, bluetooth-central, bluetooth-peripheral]
         NSMicrophoneUsageDescription: Sends dictation to your glasses.
         NSSpeechRecognitionUsageDescription: Turns what you say into prompts for your glasses.
-        NSCameraUsageDescription: Captures stills your glasses can see.
+        # Kept for MockDeviceKit, which can stand the phone camera in for the glasses
+        # feed. The real capture path does not touch AVFoundation at all.
+        NSCameraUsageDescription: Stands the phone camera in for the glasses when mocking.
+        NSBluetoothAlwaysUsageDescription: Connects to your Meta glasses.
+        NSBluetoothPeripheralUsageDescription: Connects to your Meta glasses.
+        NSLocalNetworkUsageDescription: Lets your phone find your glasses over Wi-Fi.
+        NSBonjourServices: [_bonjour._tcp]
+        # Meta AI calls back into the app through this scheme once the user approves
+        # registration. It must match MWDAT.AppLinkURLScheme below or the round trip
+        # completes into a black hole.
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
+            CFBundleURLSchemes: [sensoragent]
+        MWDAT:
+          AppLinkURLScheme: sensoragent://
+          # "0" is the documented Developer Mode value — registration is always allowed
+          # and no Wearables Developer Center app record is needed. Swap in a real
+          # APPLICATION_ID and ClientToken only when building for anyone but yourself.
+          MetaAppID: "0"
+          ClientToken: ""
+          TeamID: $(DEVELOPMENT_TEAM)

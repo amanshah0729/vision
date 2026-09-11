@@ -3,11 +3,13 @@ node_modules/
 .token
 *.log
 .DS_Store
-# Xcode
+# Xcode. Info.plist is generated from project.yml's `info.properties` — edit the spec,
+# never the plist, or xcodegen will silently overwrite your change on the next generate.
 ios/**/build/
 ios/**/*.xcodeproj
 ios/**/*.xcworkspace
 ios/**/xcuserdata/
+ios/**/Info.plist
 .build/
 tools/swift-sensor/bin/
 tools/capture/bin/

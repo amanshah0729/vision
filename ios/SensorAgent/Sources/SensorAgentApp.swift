@@ -1,9 +1,21 @@
 #if os(iOS)
+import MWDATCore
 import SwiftUI
 
 @main
 struct SensorAgentApp: App {
-    var body: some Scene { WindowGroup { ContentView() } }
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                // Meta AI bounces the user back here through the `sensoragent://` scheme
+                // after they approve registration. Without this hop the approval succeeds
+                // on Meta's side and the app never finds out, so it sits in `.registering`
+                // forever.
+                .onOpenURL { url in
+                    Task { _ = try? await Wearables.shared.handleUrl(url) }
+                }
+        }
+    }
 }
 
 /// Deliberately plain. This app is a headless-ish daemon with a switch; the interface

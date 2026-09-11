@@ -39,35 +39,55 @@ Meta's DAT is in public developer preview and **Ray-Ban Display is supported for
 and photo capture**. This supersedes the old "the glasses camera is impossible" verdict,
 which was true only of the *browser*, and only before DAT shipped.
 
-- iOS SDK via Swift Package Manager → **needs full Xcode**. The disk-space work is on the
-  critical path for this, not for the old AVFoundation design.
-- Needs a Meta developer account and Developer Mode enabled via the Meta AI app.
-- Solo dev running a build on their own glasses is supported. Publishing is not, during
-  preview — irrelevant for personal use.
-- **`MockDeviceKit` tests without physical glasses**, so integration can start before
-  hardware and permissions are sorted.
+`ios/SensorAgent` now links `MWDATCore`, `MWDATCamera` and `MWDATMockDevice` (pinned to
+0.9.0) and `Sources/GlassesCamera.swift` reads the glasses camera. The old AVFoundation
+`StillCapture.swift` — the phone's camera, the wrong thing — is deleted.
 
-`ios/SensorAgent` was written against the wrong assumption: AVFoundation capturing the
-*phone's* camera. The fix is to swap its capture layer for DAT reading the *glasses*
-camera. `PROTOCOL.md` already anticipated this and needs no change — it has the
-`glasses-camera` capability designed in.
+Worth knowing before touching that file:
+
+- **DAT has no one-shot photo call.** A photo can only be taken while a video stream is
+  live, so every capture is `session → camera → stream → wait for .streaming →
+  capturePhoto → wait for the photo publisher`. That is seconds of Bluetooth setup, which
+  is why the session is held open between shots.
+- **Ask for less bandwidth, get a better picture.** DAT degrades quality to fit Bluetooth
+  Classic. Requesting `.medium`/15fps yields a cleaner still than requesting `.high` and
+  being throttled into it.
+- `Foundation.Stream` collides with `MWDATCamera.Stream`. Qualify it.
+- `MWDAT.MetaAppID = "0"` is the documented Developer Mode value; it only needs a real
+  application id for builds that leave this machine.
+
+`PROTOCOL.md` needed no change — it had `glasses-camera` designed in from the start.
 
 ## State of this repo — read before promising anything
 
-Split out of `sightline` on 2026-09-09. Two things are honestly incomplete:
+Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
 
+- **Nothing here has ever touched real glasses.** The app compiles clean against the real
+  DAT API; that is all. Registration, permissions, pairing and capture are all unexercised.
+  "Compiles" is not "works" — say which one you mean.
+- **`MockDeviceKit` is linked but unused.** Nothing calls `MockDeviceKit.shared.enable()`
+  or `pairGlasses(model:)`. Wiring that up is the next step and the only way to exercise
+  `GlassesCamera` without hardware or a Meta account.
+- **Access needs Aman, not an agent.** A Meta developer account, accepted Developer Terms,
+  Developer Mode on in the Meta AI app, then two in-app approvals on his phone. No part of
+  that is scriptable. Do not claim to have access.
 - **There is no host process here.** `sensors.js` used to be mounted into Sightline's
   `server.js`, which supplied the HTTP server, the token gate, and the lockout. Pulling it
   out left the handler without a host. Nothing in this repo currently runs. Standing one up
   means reimplementing auth — do not just expose `handleSensors` unauthenticated.
-- **The iOS capture layer has never compiled.** This machine has Command Line Tools, not
-  full Xcode, so `xcodebuild` does not exist. `Dictation.swift`, `StillCapture.swift`,
-  `AgentController.swift`, and `SensorAgentApp.swift` are unverified code. Say so plainly
-  rather than implying they work. Xcode also needs ~50GB free that the disk does not have,
-  plus a developer account and provisioning to reach a device — this is not nearly done.
 
-What *is* verified: the protocol layer, end to end, via `tools/swift-sensor` against the
-running bridge.
+What *is* verified: the protocol layer end to end, via `tools/swift-sensor` against the
+running bridge; and that the whole iOS target builds.
+
+## Toolchain
+
+Xcode 26.6 with the iOS 26.5 SDK, installed 2026-09-10. Note that App Store Xcode ships
+**macOS platform only** — the iOS platform is a separate ~8GB download. Without it every
+build fails with "Supported platforms for the buildables in the current scheme is empty."
+Fix is `xcodebuild -downloadPlatform iOS`, not a reinstall.
+
+`xcodegen` via Homebrew generates both the `.xcodeproj` and `Info.plist`. Both are
+gitignored; `project.yml` is the source of truth.
 
 ## Rules
 
