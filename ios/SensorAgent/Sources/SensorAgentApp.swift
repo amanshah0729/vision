@@ -34,6 +34,8 @@ struct ContentView: View {
     /// `ios/SensorAgent/device.sh run` (which wraps `xcrun devicectl device process launch … -- -autoStartCameraPoC`)
     /// then `device.sh log`. Exists because nobody is guaranteed to be holding the phone.
     @State private var autoPoC = CommandLine.arguments.contains("-autoStartCameraPoC")
+    /// `-autoStartAgent` (with `-bridgeURL`/`-bridgeToken`) connects to the bridge on launch.
+    private let autoAgent = CommandLine.arguments.contains("-autoStartAgent")
 
     var body: some View {
         NavigationStack {
@@ -97,6 +99,7 @@ struct ContentView: View {
             }
             .navigationTitle("Sensor Agent")
             .navigationDestination(isPresented: $autoPoC) { CameraPoCView(autoStart: true) }
+            .onAppear { if autoAgent && !agent.running { agent.start() } }
         }
     }
 }

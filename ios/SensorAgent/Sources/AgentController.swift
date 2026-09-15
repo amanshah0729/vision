@@ -8,8 +8,8 @@ import UIKit
 /// harness in tools/swift-sensor and, later, a DAT build.
 @MainActor
 final class AgentController: ObservableObject {
-    @Published var baseURL: String = UserDefaults.standard.string(forKey: "baseURL") ?? ""
-    @Published var token: String = UserDefaults.standard.string(forKey: "token") ?? ""
+    @Published var baseURL: String = launchArg("-bridgeURL") ?? UserDefaults.standard.string(forKey: "baseURL") ?? ""
+    @Published var token: String = launchArg("-bridgeToken") ?? UserDefaults.standard.string(forKey: "token") ?? ""
     @Published var running = false
     @Published var status = "idle"
     @Published var lastTranscript = ""
@@ -50,6 +50,7 @@ final class AgentController: ObservableObject {
 
         running = true
         status = useMockGlasses ? "connecting… (mock glasses)" : "connecting…"
+        PoCLog.write("AGENT: start bridge=\(url) mock=\(useMockGlasses) deviceId=\(deviceId)")
 
         let client = BridgeClient(
             base: url, token: token, deviceId: deviceId,
@@ -122,15 +123,20 @@ final class AgentController: ObservableObject {
             await set(status: "online")
         case "camera.still":
             await set(status: "capturing")
+            PoCLog.write("AGENT: camera.still received")
             do {
                 // Both of these surface real, actionable reasons — "approve Sensor Agent in
                 // the Meta AI app", "hinges closed" — so the message is shown rather than
                 // flattened into a generic failure the user cannot act on.
                 try await GlassesCamera.ensureAccess()
+                let t0 = Date()
                 let jpeg = try await camera.capture()
+                let captured = Date().timeIntervalSince(t0)
                 try await client.postStill(jpeg)
+                PoCLog.write("AGENT: still posted bytes=\(jpeg.count) capture=\(Int(captured * 1000))ms total=\(Int(Date().timeIntervalSince(t0) * 1000))ms")
                 await set(status: "online")
             } catch {
+                PoCLog.write("AGENT: camera.still FAILED \(error) — \(error.localizedDescription)")
                 await set(status: error.localizedDescription)
             }
         default:
@@ -141,5 +147,13 @@ final class AgentController: ObservableObject {
     private func set(status value: String) async {
         await MainActor.run { self.status = value }
     }
+}
+
+/// `-name value` from the command line, so a bridge run can be driven from the Mac:
+/// `device.sh bridge <url> <token>` launches with `-bridgeURL … -bridgeToken … -autoStartAgent`.
+func launchArg(_ name: String) -> String? {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+    return args[i + 1]
 }
 #endif
