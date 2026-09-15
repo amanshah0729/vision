@@ -64,7 +64,7 @@ Announce presence and capabilities. Also serves as the heartbeat: re-post every 
 with no register for **90s** is dropped from `GET /api/sensors`.
 
 ```json
-{ "deviceId": "8A1F…", "name": "Aman's iPhone", "caps": ["mic", "camera"] }
+{ "deviceId": "8A1F…", "name": "My iPhone", "caps": ["mic", "camera"] }
 ```
 → `200 { "ok": true, "ttlMs": 90000 }`
 
@@ -110,7 +110,7 @@ Which clients are online and what they can do, plus a description of the latest 
 (`null` if there is none).
 
 ```json
-{ "devices": [ { "deviceId": "8A1F…", "name": "Aman's iPhone",
+{ "devices": [ { "deviceId": "8A1F…", "name": "My iPhone",
                  "caps": ["mic","camera"], "at": 1757389200000, "ageMs": 1200 } ],
   "still": { "at": 1757389200000, "bytes": 148213, "deviceId": "8A1F…" } }
 ```

@@ -2,7 +2,10 @@
 # which is gitignored on purpose — the spec is the source of truth, not the project file.
 name: SensorAgent
 options:
-  bundleIdPrefix: com.amanshah.glasses
+  # Generic on purpose so the repo is publishable. Override per machine without editing the
+  # spec: `ios/SensorAgent/device.sh` passes PRODUCT_BUNDLE_IDENTIFIER / DEVELOPMENT_TEAM
+  # from a gitignored `.device.env`. Changing the bundle id drops DAT's registration.
+  bundleIdPrefix: com.example.glasses
   deploymentTarget:
     # 17.2, not 17.0: the MWDAT binary frameworks are built against 17.2 and the linker
     # warns on every build otherwise. DAT is the whole point of this app, so its floor wins.

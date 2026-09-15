@@ -8,7 +8,7 @@ import UIKit
 /// Stands a **fake** pair of glasses up inside DAT so the real `GlassesCamera` code path —
 /// registration, permission, session, stream, `capturePhoto` — runs with no hardware and no
 /// Meta account. Per `ios/README.md` this is the only way to exercise `GlassesCamera` short
-/// of Aman's phone, so it is the gate that lets the app be developed at all before access is
+/// of a real phone, so it is the gate that lets the app be developed at all before access is
 /// granted.
 ///
 /// It is deliberately loud about being fake. The mock advertises itself as a stand-in (see

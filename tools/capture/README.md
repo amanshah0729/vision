@@ -8,7 +8,7 @@ swiftc -O -o bin/capture main.swift \
 
 ./bin/capture --list                          # devices + permission state
 ./bin/capture --out /tmp/shot.jpg             # default (built-in) camera
-./bin/capture --device "Aman" --out /tmp/p.jpg # iPhone via Continuity Camera
+./bin/capture --device "My iPhone" --out /tmp/p.jpg # iPhone via Continuity Camera
 ./bin/capture > shot.jpg                      # JPEG on stdout if --out omitted
 ```
 

@@ -48,16 +48,21 @@ Both `.xcodeproj`, `Info.plist` and `SensorAgent.entitlements` are generated and
 **`project.yml` is the source of truth**. Editing them directly gets silently overwritten.
 
 Deployment target is iOS 17.2 because the MWDAT binaries are built against 17.2. Running on
-a real phone needs your own signing team; the bundle prefix is `com.amanshah.glasses`.
+a real phone needs your own signing team. A free Personal Team is enough (see below).
 
-Device build from the CLI (free Personal Team `29X3Z6635B`, already trusted on the phone):
+Device build from the CLI: copy `.device.env.example` to `.device.env` (gitignored), fill in
+your device UDID, team id and bundle id, then:
 
 ```sh
-xcodebuild -project SensorAgent.xcodeproj -scheme SensorAgent -sdk iphoneos \
-  -destination 'id=<device udid>' -allowProvisioningUpdates \
-  DEVELOPMENT_TEAM=29X3Z6635B CODE_SIGN_STYLE=Automatic -derivedDataPath /tmp/sa-device build
-xcrun devicectl device install app --device <udid> /tmp/sa-device/Build/Products/Debug-iphoneos/SensorAgent.app
+./device.sh build     # xcodegen + signed device build
+./device.sh install
+./device.sh run       # launches with -autoStartCameraPoC
+./device.sh log       # pulls Documents/poc.log
+./device.sh photo     # pulls Documents/last-photo.jpg
 ```
+
+Each step is one `xcodebuild` / `xcrun devicectl` call; read the script if you would rather
+run them by hand.
 
 ## Free team vs paid team
 
@@ -117,10 +122,8 @@ live view stays blank on the simulator — `CameraPoCStreamTests` asserts only t
 Registration and camera permission need a human in Meta AI once per install. After that:
 
 ```sh
-xcrun devicectl device process launch --terminate-existing --device <udid> \
-  com.amanshah.glasses.SensorAgent -- -autoStartCameraPoC     # phone must be unlocked
-xcrun devicectl device copy from --device <udid> --domain-type appDataContainer \
-  --domain-identifier com.amanshah.glasses.SensorAgent --source Documents/poc.log --destination poc.log
+./device.sh run     # phone must be unlocked
+./device.sh log
 ```
 
 The PoC logs session/stream state, fps stats every 5s, and one timed capture at 10s; the

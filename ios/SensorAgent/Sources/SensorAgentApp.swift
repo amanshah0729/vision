@@ -31,8 +31,8 @@ struct ContentView: View {
     @StateObject private var agent = AgentController()
     /// `-autoStartCameraPoC` on the command line pushes the Camera PoC and starts the stream
     /// with no taps, so a hardware run can be driven from the Mac:
-    /// `xcrun devicectl device process launch --device <id> com.amanshah.glasses.SensorAgent -autoStartCameraPoC`
-    /// then pull `Documents/poc.log`. Exists because nobody is guaranteed to be holding the phone.
+    /// `ios/SensorAgent/device.sh run` (which wraps `xcrun devicectl device process launch … -- -autoStartCameraPoC`)
+    /// then `device.sh log`. Exists because nobody is guaranteed to be holding the phone.
     @State private var autoPoC = CommandLine.arguments.contains("-autoStartCameraPoC")
 
     var body: some View {

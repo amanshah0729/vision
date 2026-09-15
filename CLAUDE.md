@@ -1,6 +1,7 @@
 # Vision — sensors for the glasses
 
-Read `../CLAUDE.md` first for the hardware facts. The one that matters most here:
+Read `../CLAUDE.md` first for the hardware facts if this is checked out inside the
+`glasses` parent repo; standalone, the one fact that matters is below. The one that matters most here:
 
 > **The glasses browser has no camera and no mic.** Probed on real hardware.
 > `enumerateDevices` returns `1x audiooutput`, `getUserMedia` throws `NotFoundError`.
@@ -23,7 +24,7 @@ mixed content is blocked.
 
 ## The goal is the GLASSES camera. Read this before building anything.
 
-The point of this repo is that an agent sees **what Aman sees through the glasses**. A
+The point of this repo is that an agent sees **what the wearer sees through the glasses**. A
 desk webcam is not that. `PROTOCOL.md` encodes the distinction deliberately: `camera` is
 the function, `glasses-camera` is the origin, and a stand-in must be visibly marked
 "so a desk test is never mistaken for the real thing."
@@ -116,8 +117,8 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   JPEG comes back. It passes on the simulator. Toggle it in the app under **Debug → Mock
   glasses**; a mock session reports as a stand-in (plain `["mic","camera"]`) and every frame is
   stamped "MOCK GLASSES".
-- **Access needs Aman, not an agent.** A Meta developer account, accepted Developer Terms,
-  Developer Mode on in the Meta AI app, then two in-app approvals on his phone. No part of
+- **Access needs a human, not an agent.** A Meta developer account, accepted Developer Terms,
+  Developer Mode on in the Meta AI app, then two in-app approvals on their phone. No part of
   that is scriptable. Do not claim to have access. This is the only thing between the mock and
   a real capture.
 - **There is no host process here.** `sensors.js` used to be mounted into Sightline's
@@ -129,10 +130,9 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   HFP, not DAT, so `Dictation.preferBluetoothHFP` routes speech capture to it via
   `AVAudioSession`. Needs no entitlements and no paid account. Unverified on hardware.
 - **Hardware runs can be driven from the Mac.** Launch with
-  `xcrun devicectl device process launch --device <id> com.amanshah.glasses.SensorAgent -- -autoStartCameraPoC`
-  (the `--` matters; the phone must be unlocked) and pull `Documents/poc.log` with
-  `devicectl device copy from --domain-type appDataContainer --domain-identifier
-  com.amanshah.glasses.SensorAgent`. `print`/`NSLog` never reach the CLI; the file log is
+  `ios/SensorAgent/device.sh run` (wraps `xcrun devicectl device process launch … --
+  -autoStartCameraPoC`; the `--` matters; the phone must be unlocked) and pull
+  `Documents/poc.log` with `device.sh log` (wraps `devicectl device copy from`). `print`/`NSLog` never reach the CLI; the file log is
   the only way to read what DAT reported. `PoCLog` writes it; `CameraPoC` adds fps stats
   every 5s and fires one capture at 10s so an unattended run leaves numbers behind.
 - **There is a live-camera PoC** (`CameraPoC` + `CameraPoCView`, reachable from the main

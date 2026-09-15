@@ -14,3 +14,8 @@ ios/**/*.entitlements
 .build/
 tools/swift-sensor/bin/
 tools/capture/bin/
+
+# Per-machine device settings for ios/SensorAgent/device.sh
+.device.env
+ios/SensorAgent/poc.log
+ios/SensorAgent/last-photo.jpg

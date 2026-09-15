@@ -9,7 +9,7 @@
 //   swiftc -O -o bin/capture main.swift
 //   ./bin/capture --list
 //   ./bin/capture --out /tmp/shot.jpg
-//   ./bin/capture --device "Aman" --out /tmp/phone.jpg
+//   ./bin/capture --device "My iPhone" --out /tmp/phone.jpg
 //
 // Exit codes are distinct so a caller can tell "denied" from "no camera" from
 // "capture failed" without scraping stderr.
