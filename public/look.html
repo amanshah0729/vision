@@ -27,9 +27,15 @@ html, body {
 .stage {
   flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
   border: 2px solid #16323d; border-radius: 14px; overflow: hidden; margin-bottom: 12px;
+  position: relative;
 }
 .shot { max-width: 100%; max-height: 100%; object-fit: contain; }
-.note { color: var(--dim); font-size: 21px; text-align: center; padding: 20px; }
+/* While a new frame is on its way the last one stays up, dimmed, with the status laid
+   over it. Hiding the image left ~5s of near-black — which on the waveguide (black is
+   transparent) read as the display switching off. Bright text, not dim, for the same reason. */
+.stage.busy .shot { opacity: .35; }
+.note { color: var(--accent); font-size: 24px; font-weight: 600; text-align: center; padding: 20px;
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .note.bad { color: var(--bad); }
 .meta.standin { color: #ffb347; }
 .chips { flex: 0 0 auto; display: flex; gap: 10px; }
@@ -47,7 +53,7 @@ html, body {
 <body>
 <section class="screen">
   <header class="bar"><span class="title">Look</span><span id="meta" class="meta"></span></header>
-  <div class="stage">
+  <div class="stage" id="stage">
     <img id="shot" class="shot" alt="Latest camera frame" hidden>
     <div id="note" class="note">Waiting for the camera…</div>
   </div>
@@ -76,12 +82,17 @@ async function api(path, opts = {}) {
   if (!res.ok) { const e = new Error(res.status); e.status = res.status; throw e; }
   return res.json();
 }
-function note(msg, bad) {
+/* keepShot: leave the last frame visible (dimmed) behind the message — used while a new
+   one is in flight so the screen never goes blank. */
+function note(msg, bad, keepShot) {
   const n = $('note');
   n.textContent = msg;
   n.className = 'note' + (bad ? ' bad' : '');
   n.hidden = false;
-  $('shot').hidden = true;
+  const shot = $('shot');
+  const busy = keepShot && !shot.hidden;
+  shot.hidden = !busy;
+  $('stage').classList.toggle('busy', busy);
 }
 function ago(ms) {
   const s = Math.round((Date.now() - ms) / 1000);
@@ -97,6 +108,7 @@ function showShot(at, bytes) {
   img.src = '/api/sensors/still.jpg?k=' + encodeURIComponent(TOKEN) + '&t=' + at;
   img.hidden = false;
   $('note').hidden = true;
+  $('stage').classList.remove('busy');
   const m = $('meta');
   m.textContent = (standIn ? 'STAND-IN · ' : '') + Math.round((bytes || 0) / 1024) + ' KB · ' + ago(at);
   m.className = 'meta' + (standIn ? ' standin' : '');
@@ -108,7 +120,7 @@ function stopWait() { if (waiter) { clearInterval(waiter); waiter = null; } }
 async function capture() {
   stopWait();
   const baseline = latestAt;
-  note('Asking the camera…');
+  note('Asking the camera…', false, true);
   try {
     const d = await api('/api/sensors');
     const cam = (d.devices || []).find((x) => (x.caps || []).includes('camera'));
@@ -119,7 +131,7 @@ async function capture() {
     note(e.status === 401 ? 'Token rejected — reopen with ?k=…' : 'Capture failed (' + e.message + ')', true);
     return;
   }
-  note('Waiting for the frame…');
+  note('Capturing… (about 5s)', false, true);
   const started = Date.now();
   waiter = setInterval(async () => {
     try {
@@ -128,9 +140,9 @@ async function capture() {
     } catch {}
     if (Date.now() - started > TIMEOUT_MS) {
       stopWait();
-      // Far and away the usual cause, and nothing the bridge can do about it:
-      // iOS gives no background mode for the camera.
-      note('No frame came back. Is the phone unlocked with the app open?', true);
+      // The agent keeps itself alive in the background (silent audio session), so the
+      // usual causes now are: agent not started, glasses folded, or no signal on the phone.
+      note('No frame came back. Is Sensor Agent running and are the glasses unfolded?', true);
     }
   }, 500);
 }
