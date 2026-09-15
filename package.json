@@ -1,0 +1,8 @@
+{
+  "name": "vision-bridge",
+  "private": true,
+  "type": "module",
+  "description": "Host for sensors.js — the meeting point between the phone sensor client and the glasses web app.",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}
