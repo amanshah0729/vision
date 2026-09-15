@@ -24,6 +24,7 @@ final class AgentController: ObservableObject {
     private var task: Task<Void, Never>?
     private let dictation = Dictation()
     private let camera = GlassesCamera()
+    private let keepalive = Keepalive()
 
     /// One stable id per install, as PROTOCOL.md requires. Regenerating it on every
     /// launch would leave the bridge showing phantom devices until their TTL expired.
@@ -77,11 +78,14 @@ final class AgentController: ObservableObject {
             }
         }
         status = "online"
+        // Hold the process alive in the background/locked so the long-poll keeps running.
+        keepalive.start()
     }
 
     func stop() {
         task?.cancel()
         task = nil
+        keepalive.stop()
         dictation.stop()
         camera.stop()
         running = false
@@ -117,9 +121,12 @@ final class AgentController: ObservableObject {
                 await set(status: "mic denied in Settings"); return
             }
             await set(status: "listening")
+            // Dictation takes the audio session; its running engine is its own keepalive.
+            keepalive.stop()
             try? dictation.start()
         case "mic.stop":
             dictation.stop()
+            keepalive.start()
             await set(status: "online")
         case "camera.still":
             await set(status: "capturing")
