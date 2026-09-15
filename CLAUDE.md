@@ -14,7 +14,8 @@ mixed content is blocked.
 | Piece | What it is |
 |---|---|
 | `PROTOCOL.md` | **The durable asset.** Wire contract between a native sensor client and a bridge. |
-| `sensors.js` | Bridge-side handler implementing `PROTOCOL.md`. Was mounted into Sightline. |
+| `server.js` | **The host.** Token gate + lockout + static `public/` + mounts `sensors.js`. `./start.sh`, port 8791. |
+| `sensors.js` | Bridge-side handler implementing `PROTOCOL.md`. Zero-dep; `server.js` mounts it. |
 | `ios/` | Native sensor client (Swift). Speaks `PROTOCOL.md`. See `ios/README.md`. |
 | `tools/swift-sensor/` | The real `BridgeClient` with capture faked — compiles and runs on macOS. |
 | `tools/fake-sensor.sh` | Impersonates the native client so the pipeline can be tested with no app. |
@@ -121,10 +122,12 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   Developer Mode on in the Meta AI app, then two in-app approvals on their phone. No part of
   that is scriptable. Do not claim to have access. This is the only thing between the mock and
   a real capture.
-- **There is no host process here.** `sensors.js` used to be mounted into Sightline's
-  `server.js`, which supplied the HTTP server, the token gate, and the lockout. Pulling it
-  out left the handler without a host. Nothing in this repo currently runs. Standing one up
-  means reimplementing auth — do not just expose `handleSensors` unauthenticated.
+- **The host exists (`server.js`) and is verified with the fakes, not yet with the phone.**
+  Same token scheme as Sightline (bearer / `?k=` / cookie, eight failures = ten-minute
+  lockout), port 8791. Verified 2026-09-14 locally with `tools/fake-sensor.sh` and
+  `tools/swift-sensor` (register → `camera.still` → still lands → `mic.start` →
+  transcripts land). The real phone app has not yet been pointed at it, so the full loop
+  web app → bridge → phone → glasses → bridge is still unproven end to end.
 
 - **There is a mic PoC** (`MicPoC` + `MicPoCView`). The glasses' mic is plain Bluetooth
   HFP, not DAT, so `Dictation.preferBluetoothHFP` routes speech capture to it via
@@ -151,13 +154,20 @@ comes up to `.streaming` against the mock (`CameraPoCStreamTests`) — both on t
 
 ## Toolchain
 
-Xcode 26.6 with the iOS 26.5 SDK, installed 2026-09-10. Note that App Store Xcode ships
+**Xcode 26 is required, which means macOS 15.6+.** MWDAT 0.9.0's `.swiftinterface` files
+were emitted by Swift 6.3 in `-swift-version 6` mode; Xcode 15 cannot parse them and
+Xcode 16 is a gamble. Meta's docs still say "Xcode 14.0+" — that predates 0.9.0.
+
+Xcode 26.6 with the iOS 26.5 SDK is what this was built with. App Store Xcode ships the
 **macOS platform only** — the iOS platform is a separate ~8GB download. Without it every
 build fails with "Supported platforms for the buildables in the current scheme is empty."
 Fix is `xcodebuild -downloadPlatform iOS`, not a reinstall.
 
-`xcodegen` via Homebrew generates both the `.xcodeproj` and `Info.plist`. Both are
-gitignored; `project.yml` is the source of truth.
+The bridge (`server.js`) needs only Node ≥ 18 and can run on a machine with no Xcode; an
+agent session there can edit `project.yml` and run `xcodegen` but cannot compile the app.
+
+`xcodegen` via Homebrew generates the `.xcodeproj`, `Info.plist` and `.entitlements`
+(`ios/SensorAgent/gen.sh`). All gitignored; `project.yml` is the source of truth.
 
 ## Rules
 

@@ -11,6 +11,7 @@ ios/**/*.xcworkspace
 ios/**/xcuserdata/
 ios/**/Info.plist
 ios/**/*.entitlements
+ios/**/Team.xcconfig
 .build/
 tools/swift-sensor/bin/
 tools/capture/bin/

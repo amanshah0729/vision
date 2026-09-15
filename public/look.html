@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
 <meta name="mrbd-web-app-capable" content="yes">
-<meta name="description" content="See what the phone camera sees, from the glasses">
+<meta name="description" content="See what the glasses camera sees">
 <title>Look</title>
 <style>
 /* Standalone on purpose. Vision does not belong inside the coding app — mixing
@@ -31,6 +31,7 @@ html, body {
 .shot { max-width: 100%; max-height: 100%; object-fit: contain; }
 .note { color: var(--dim); font-size: 21px; text-align: center; padding: 20px; }
 .note.bad { color: var(--bad); }
+.meta.standin { color: #ffb347; }
 .chips { flex: 0 0 auto; display: flex; gap: 10px; }
 .chip {
   flex: 1 1 0; min-height: 88px; border: 2px solid #16323d; border-radius: 14px;
@@ -86,13 +87,19 @@ function ago(ms) {
   const s = Math.round((Date.now() - ms) / 1000);
   return s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago';
 }
+/* PROTOCOL.md: `camera` is the function, `glasses-camera` is the origin. A client
+   without the glasses- prefix is a stand-in (phone, mock, Mac harness) and has to be
+   visibly marked, so a desk test is never mistaken for the real thing. */
+let standIn = false;
 function showShot(at, bytes) {
   latestAt = at;
   const img = $('shot');
   img.src = '/api/sensors/still.jpg?k=' + encodeURIComponent(TOKEN) + '&t=' + at;
   img.hidden = false;
   $('note').hidden = true;
-  $('meta').textContent = Math.round((bytes || 0) / 1024) + ' KB · ' + ago(at);
+  const m = $('meta');
+  m.textContent = (standIn ? 'STAND-IN · ' : '') + Math.round((bytes || 0) / 1024) + ' KB · ' + ago(at);
+  m.className = 'meta' + (standIn ? ' standin' : '');
 }
 function stopWait() { if (waiter) { clearInterval(waiter); waiter = null; } }
 
@@ -106,6 +113,7 @@ async function capture() {
     const d = await api('/api/sensors');
     const cam = (d.devices || []).find((x) => (x.caps || []).includes('camera'));
     if (!cam) { note('No camera client online. Open the Sensor Agent on your phone.', true); return; }
+    standIn = !(cam.caps || []).includes('glasses-camera');
     await api('/api/sensors/command', { method: 'POST', body: { action: 'camera.still', deviceId: cam.deviceId } });
   } catch (e) {
     note(e.status === 401 ? 'Token rejected — reopen with ?k=…' : 'Capture failed (' + e.message + ')', true);

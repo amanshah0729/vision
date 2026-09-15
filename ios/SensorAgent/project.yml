@@ -1,5 +1,5 @@
-# XcodeGen spec: `brew install xcodegen && xcodegen generate` produces the .xcodeproj,
-# which is gitignored on purpose — the spec is the source of truth, not the project file.
+# XcodeGen spec: `./gen.sh` (or `xcodegen generate`) produces the .xcodeproj, Info.plist
+# and .entitlements, all gitignored on purpose — the spec is the source of truth.
 name: SensorAgent
 options:
   # Generic on purpose so the repo is publishable. Override per machine without editing the
@@ -19,11 +19,22 @@ packages:
     url: https://github.com/facebook/meta-wearables-dat-ios
     exactVersion: 0.9.0
 
+# Signing. Team.xcconfig is gitignored; `./gen.sh` writes DEVELOPMENT_TEAM (and, if set,
+# PRODUCT_BUNDLE_IDENTIFIER) into it from the environment, or `device.sh` does from
+# `.device.env`. The team id is also what DAT reads as `MWDAT.TeamID` below, so it has to
+# be the real one. A free Personal Team is enough for Bluetooth streaming.
+configFiles:
+  Debug: Team.xcconfig
+  Release: Team.xcconfig
+
 targets:
   SensorAgent:
     type: application
     platform: iOS
     sources: [Sources]
+    settings:
+      base:
+        CODE_SIGN_STYLE: Automatic
     # DAT's `Wearables.configure()` stores state in the keychain; without a keychain access
     # group the SecItem calls fail and configure() throws `internalError`, which traps
     # `Wearables.shared`. The app must therefore be signed (ad-hoc is enough on the simulator)
@@ -80,8 +91,12 @@ targets:
         NSCameraUsageDescription: Stands the phone camera in for the glasses when mocking.
         NSBluetoothAlwaysUsageDescription: Connects to your Meta glasses.
         NSBluetoothPeripheralUsageDescription: Connects to your Meta glasses.
-        NSLocalNetworkUsageDescription: Lets your phone find your glasses over Wi-Fi.
-        NSBonjourServices: [_bonjour._tcp]
+        # Only the optional Wi-Fi link uses these; the Bluetooth link ignores Local Network.
+        NSLocalNetworkUsageDescription: Lets your phone stream from your glasses over Wi-Fi.
+        # `_bonjour._tcp` is what Meta's docs and sample declare. `_meta-datax._tcp` is the
+        # service type MWDATCore actually carries in its binary; iOS 14+ refuses to browse a
+        # type not listed here, so both are declared.
+        NSBonjourServices: [_bonjour._tcp, _meta-datax._tcp]
         # Meta AI calls back into the app through this scheme once the user approves
         # registration. It must match MWDAT.AppLinkURLScheme below or the round trip
         # completes into a black hole.

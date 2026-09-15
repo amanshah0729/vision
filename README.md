@@ -43,7 +43,8 @@ Full notes, including what was learned from `strings` on the DAT binaries, are i
 |---|---|
 | `ios/SensorAgent/` | The iOS app. Glasses camera via DAT, phone-mic dictation, a bridge client, a live-camera PoC with fps/latency HUD, a Bluetooth-HFP mic PoC, and a `MockDeviceKit` mock so it runs on the simulator. |
 | `PROTOCOL.md` | Wire contract between a native sensor client and a bridge: registration, capabilities, command queue, results. Language-neutral. |
-| `sensors.js` | Bridge-side handler implementing the protocol. Needs a host HTTP server with auth; see "Status". |
+| `server.js` | The bridge host: token gate with lockout, static `public/`, mounts `sensors.js`. Zero dependencies, Node ≥ 18. `./start.sh`. |
+| `sensors.js` | Bridge-side handler implementing the protocol. |
 | `public/` | `probe.html` (the capability probe that produced the "no camera" verdict) and `look.html` (a stills viewer). |
 | `tools/` | A macOS harness for the bridge client, a bash impersonator, and a Mac webcam CLI that is explicitly *not* the glasses. |
 
@@ -55,7 +56,7 @@ account with the terms accepted.
 
 ```sh
 cd ios/SensorAgent
-xcodegen generate
+./gen.sh                              # xcodegen + a gitignored Team.xcconfig
 
 # Simulator: runs the whole DAT path against MockDeviceKit and asserts a JPEG comes back
 xcodebuild -project SensorAgent.xcodeproj -scheme SensorAgent -sdk iphonesimulator \
@@ -93,11 +94,11 @@ Honest and incomplete:
 
 - Camera capture, live view, and photo are verified on hardware. Dictation from the
   phone mic works; the Bluetooth-HFP glasses-mic PoC is untested on hardware.
-- `sensors.js` has no host. It used to be mounted in another project's server, which
-  supplied HTTP, the token gate, and lockout. Standing it up alone means adding auth. Do not
-  expose it bare.
-- The end-to-end path (web app → bridge → phone → glasses → bridge → web app) has not
-  been run since the split; the pieces have.
+- The bridge (`server.js`) runs and is verified with the fake clients in `tools/`:
+  register → `camera.still` → still lands → `mic.start` → transcripts land. Put it behind
+  HTTPS (a Cloudflare tunnel, a reverse proxy) — the glasses browser refuses plain http.
+- The end-to-end path with the *real* phone app (web app → bridge → phone → glasses →
+  bridge → web app) has not been run yet. Every piece has, separately.
 - Android is a protocol away. Nothing here is shared with iOS except `PROTOCOL.md`, on
   purpose.
 

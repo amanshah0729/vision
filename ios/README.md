@@ -30,11 +30,13 @@ same file drives the iOS app and the macOS harness in `tools/swift-sensor`.
 
 ```sh
 brew install xcodegen
-cd ios/SensorAgent && xcodegen generate
+cd ios/SensorAgent && ./gen.sh            # xcodegen + a gitignored Team.xcconfig
 xcodebuild -project SensorAgent.xcodeproj -scheme SensorAgent \
   -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' \
   CODE_SIGNING_ALLOWED=NO build
 ```
+
+Needs Xcode 26 (MWDAT 0.9.0's interfaces are Swift 6.3), so macOS 15.6 or later.
 
 `CODE_SIGNING_ALLOWED=NO` is fine for a **compile check**, but it cannot *run* capture: DAT's
 `Wearables.configure()` needs the keychain, so the app must be signed with the
@@ -153,7 +155,8 @@ swiftc -O ios/SensorAgent/Sources/BridgeClient.swift tools/swift-sensor/main.swi
 
 ## Use
 
-1. Run the bridge: `./start.sh --tunnel` (in the `sightline` repo)
+1. Run the bridge: `./start.sh` in this repo (port 8791) behind something that gives it
+   HTTPS — the glasses browser refuses plain http.
 2. In the app, paste the bridge URL (`https://…`, no `?k=`) and the token from `.token`
 3. Start. The phone appears in `GET /api/sensors` within a second or two.
 4. Queue a command:

@@ -11,11 +11,11 @@ DD=${DERIVED_DATA:-/tmp/sensoragent-device}
 APP="$DD/Build/Products/Debug-iphoneos/SensorAgent.app"
 
 build() {
-  xcodegen generate >/dev/null
+  # gen.sh writes Team.xcconfig, so a later `open SensorAgent.xcodeproj` signs the same way.
+  DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" BUNDLE_ID="$BUNDLE_ID" ./gen.sh >/dev/null
   xcodebuild -project SensorAgent.xcodeproj -scheme SensorAgent -sdk iphoneos \
     -destination "id=$DEVICE_UDID" -allowProvisioningUpdates \
-    DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-    CODE_SIGN_STYLE=Automatic -derivedDataPath "$DD" build 2>&1 \
+    -derivedDataPath "$DD" build 2>&1 \
     | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | sort -u
 }
 install() { xcrun devicectl device install app --device "$DEVICE_UDID" "$APP" 2>&1 | grep -iE "installed|error"; }
