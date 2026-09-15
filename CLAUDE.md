@@ -126,8 +126,12 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   Same token scheme as Sightline (bearer / `?k=` / cookie, eight failures = ten-minute
   lockout), port 8791. Verified 2026-09-14 locally with `tools/fake-sensor.sh` and
   `tools/swift-sensor` (register → `camera.still` → still lands → `mic.start` →
-  transcripts land). The real phone app has not yet been pointed at it, so the full loop
-  web app → bridge → phone → glasses → bridge is still unproven end to end.
+  transcripts land). **And with the real phone on 2026-09-15:** `device.sh bridge <url>
+  <token>` → phone registers with `glasses-camera` → `POST camera.still` → still on the
+  bridge in 3.7 s warm (capture 1.3 s + upload 1.6 s over cellular), ~34 s cold. The
+  glasses browser side (`look.html`) was stood in for by curl; still to be tapped for real.
+  **Known gap:** the app must stay foregrounded — locking the phone suspends it, the
+  long-poll dies, and commands queue until relaunch.
 
 - **There is a mic PoC** (`MicPoC` + `MicPoCView`). The glasses' mic is plain Bluetooth
   HFP, not DAT, so `Dictation.preferBluetoothHFP` routes speech capture to it via

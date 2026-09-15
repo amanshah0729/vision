@@ -15,6 +15,7 @@ Personal Team, 2026-09-14:
 | Stream up | ~2 s after the glasses connect |
 | Video | 504×896 HEVC, 29–32 fps sustained |
 | Photo | 1080×1440 JPEG in 0.7–1.8 s |
+| End to end via the bridge | command → still visible: 3.7 s warm, ~34 s cold (first session) |
 
 ## The one finding worth the repo
 
@@ -94,11 +95,16 @@ Honest and incomplete:
 
 - Camera capture, live view, and photo are verified on hardware. Dictation from the
   phone mic works; the Bluetooth-HFP glasses-mic PoC is untested on hardware.
-- The bridge (`server.js`) runs and is verified with the fake clients in `tools/`:
-  register → `camera.still` → still lands → `mic.start` → transcripts land. Put it behind
-  HTTPS (a Cloudflare tunnel, a reverse proxy) — the glasses browser refuses plain http.
-- The end-to-end path with the *real* phone app (web app → bridge → phone → glasses →
-  bridge → web app) has not been run yet. Every piece has, separately.
+- The full loop is verified on hardware (2026-09-15): a `camera.still` posted to a public
+  `server.js` behind a Cloudflare tunnel → the phone app (over cellular) → the glasses →
+  JPEG posted back → fetched from `/api/sensors/still.jpg`. 3.7 s warm, ~34 s the first
+  time while the DAT session comes up. Put the bridge behind HTTPS — the glasses browser
+  refuses plain http.
+- Not yet done: the phone app has to be in the foreground. iOS suspends it when the
+  screen locks, the long-poll stops, and commands queue until it is reopened. Keeping it
+  alive in the background (an audio session, or push) is the next real problem.
+- The glasses page `look.html` has not been exercised on the glasses browser since the
+  split; the same requests were made with curl.
 - Android is a protocol away. Nothing here is shared with iOS except `PROTOCOL.md`, on
   purpose.
 
