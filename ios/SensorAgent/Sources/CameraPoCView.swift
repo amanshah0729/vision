@@ -19,9 +19,7 @@ struct CameraPoCView: View {
                     // Hardware-decoded live feed (HEVC off real glasses). Sits under the
                     // still, so a captured photo briefly replaces the feed when it lands.
                     SampleBufferView(layer: poc.displayLayer, onLayer: { poc.displayLayer = $0 })
-                    if let frame = poc.frame {
-                        Image(uiImage: frame).resizable().scaledToFit()
-                    } else if poc.frameCount == 0 {
+                    if poc.frameCount == 0 {
                         Text(poc.running ? "waiting for frames…" : "not streaming")
                             .foregroundStyle(.secondary)
                     }
@@ -29,6 +27,14 @@ struct CameraPoCView: View {
                 .frame(height: 300)
                 .frame(maxWidth: .infinity)
                 .listRowInsets(EdgeInsets())
+            }
+
+            // The still lives in its own row: drawn over the feed it hid the video and on
+            // hardware read as "stuck on a screenshot".
+            if let still = poc.frame {
+                Section("Last capture") {
+                    Image(uiImage: still).resizable().scaledToFit().frame(maxHeight: 200)
+                }
             }
 
             Section("Live") {

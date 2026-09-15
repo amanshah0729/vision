@@ -48,6 +48,7 @@ final class CameraPoC: ObservableObject {
     /// Writes fps/frame stats to `PoCLog` every 5s while streaming and fires one capture at
     /// the 10s mark, so an unattended run still leaves the numbers in the log.
     private var statsTask: Task<Void, Never>?
+    private var enqueued = 0
 
     enum PoCError: LocalizedError {
         case noCamera, timeout(String)
@@ -134,8 +135,11 @@ final class CameraPoC: ObservableObject {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 seconds += 5
                 let capture = self.lastCaptureLatencyMs.map { "\($0)ms" } ?? "-"
+                let r = self.displayLayer.sampleBufferRenderer
                 PoCLog.write("PoCDIAG: stats t=\(seconds)s fps=\(self.fps) frames=\(self.frameCount) "
-                             + "size=\(self.frameSize) capture=\(capture) status=\(self.status)")
+                             + "size=\(self.frameSize) capture=\(capture) status=\(self.status) "
+                             + "enqueued=\(self.enqueued) renderer=\(r.status.rawValue) ready=\(r.isReadyForMoreMediaData) "
+                             + "layer=\(Int(self.displayLayer.bounds.width))x\(Int(self.displayLayer.bounds.height))")
                 if seconds == 10 { self.measureCaptureLatency() }
             }
         }
@@ -240,7 +244,7 @@ final class CameraPoC: ObservableObject {
             PoCLog.write("PoCDIAG: display layer failed: \(String(describing: renderer.error)) — flushing")
             renderer.flush()
         }
-        if renderer.isReadyForMoreMediaData { renderer.enqueue(buffer) }
+        if renderer.isReadyForMoreMediaData { renderer.enqueue(buffer); enqueued += 1 }
     }
 
     private func onPhoto(_ photo: PhotoData) {
@@ -256,6 +260,12 @@ final class CameraPoC: ObservableObject {
             frame = image
             PoCLog.write("PoCDIAG: photo decoded \(Int(image.size.width))×\(Int(image.size.height)) saved=\(url.lastPathComponent)")
         }
+        // On hardware the live view froze right after a capture even though frames kept
+        // arriving and being enqueued (run 7: 30 fps, renderer "rendering"). The glasses
+        // restart the video encoder around a photo, so drop whatever the decoder is holding
+        // and let it resync on the next keyframe.
+        displayLayer.sampleBufferRenderer.flush()
+        PoCLog.write("PoCDIAG: renderer flushed after photo")
     }
 
     private func waitUntil(_ label: String, _ seconds: Double,

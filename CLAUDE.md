@@ -102,11 +102,14 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   with `devicectl`). Numbers from `poc.log`: link `connected` 1s after unfolding; session
   `.started` <1s; stream `.streaming` 2s later; first frame 2s after that; `.medium`/30fps
   requested → 30 fps bursts, dipping to 6–19 fps (Bluetooth), ~880 frames in 35s; one
-  `capturePhoto` → 265 KB JPEG in 1.5s. `VideoFrame.makeUIImage()` returns nil for `.hvc1`
-  frames on hardware (the sample buffer is compressed HEVC) — the live view needs a real
-  decoder (`AVSampleBufferDisplayLayer`), see `CameraPoC.onFrame`. The bridge path
-  (`GlassesCamera.capture` → `camera.still`) shares the same session/stream code but has not
-  itself been run against hardware yet.
+  `capturePhoto` → 190–265 KB 1080×1440 JPEG in 0.7–1.8s. Later runs the same night held
+  29–32 fps for 30s straight. `VideoFrame.makeUIImage()` returns nil for `.hvc1` frames on
+  hardware (compressed HEVC), so the live view feeds the sample buffers to an
+  `AVSampleBufferDisplayLayer` — **and must flush it after every photo**, or the picture
+  freezes on the frame before the capture while frames keep arriving (run 7 vs run 8, both
+  confirmed by eye on the phone). Live view verified working, including across a capture.
+  The bridge path (`GlassesCamera.capture` → `camera.still`) shares the same session/stream
+  code but has not itself been run against hardware yet.
 - **`MockDeviceKit` is wired and covered.** `GlassesMock` stands a fake Ray-Ban up (pair →
   powerOn → unfold → don → video feed + captured still), and `GlassesMockCaptureTests` drives
   the real `GlassesCamera` path against it — session → stream → `capturePhoto` — and asserts a
