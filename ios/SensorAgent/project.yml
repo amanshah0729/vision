@@ -97,6 +97,10 @@ targets:
         # service type MWDATCore actually carries in its binary; iOS 14+ refuses to browse a
         # type not listed here, so both are declared.
         NSBonjourServices: [_bonjour._tcp, _meta-datax._tcp]
+        # Plain-http bridges on the local network (a dev Mac at 10.x/192.168.x) are allowed;
+        # everything else still has to be https. The glasses browser refuses http anyway.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         # Meta AI calls back into the app through this scheme once the user approves
         # registration. It must match MWDAT.AppLinkURLScheme below or the round trip
         # completes into a black hole.

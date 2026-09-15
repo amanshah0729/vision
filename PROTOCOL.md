@@ -86,6 +86,12 @@ rejected `413`. Only the most recent still is retained.
 
 → `200 { "ok": true, "bytes": 148213, "at": 1757389200000 }`
 
+### `POST /api/sensors/frame?deviceId=<id>`
+Body: `image/jpeg`, one live-stream frame, **≤ 1 MB** (the sender scales to `maxWidth` first).
+The bridge keeps only the newest and answers `{ "ok": true, "bytes": n, "at": ms, "seq": n }`.
+Send at most one at a time and skip frames while a post is in flight — a backlog of stale
+frames is worse than a gap.
+
 ### `GET /api/sensors/commands?deviceId=…`
 **Long poll**, held up to **25s**. Returns as soon as a command is queued for this device,
 otherwise returns an empty list. Reconnect immediately on return. 25s sits under the common
@@ -102,6 +108,8 @@ idempotent and user-retriable rather than guaranteed.
 | `mic.start` | `{}` | begin dictation, stream partials |
 | `mic.stop` | `{}` | end dictation, emit a final |
 | `camera.still` | `{}` | capture one JPEG and POST it |
+| `camera.stream.start` | `{ fps?, maxWidth?, quality?, maxSeconds? }` | post small JPEG frames to `/api/sensors/frame` at ≤`fps` (default 3, max 10), scaled to `maxWidth` px (default 480), JPEG `quality` (default 0.6), for at most `maxSeconds` (default 600) |
+| `camera.stream.stop` | `{}` | stop posting frames |
 
 ## Glasses (web app) → bridge
 
@@ -112,13 +120,23 @@ Which clients are online and what they can do, plus a description of the latest 
 ```json
 { "devices": [ { "deviceId": "8A1F…", "name": "My iPhone",
                  "caps": ["mic","camera"], "at": 1757389200000, "ageMs": 1200 } ],
-  "still": { "at": 1757389200000, "bytes": 148213, "deviceId": "8A1F…" } }
+  "still": { "at": 1757389200000, "bytes": 148213, "deviceId": "8A1F…" },
+  "frame": { "at": 1757389201500, "bytes": 38120, "deviceId": "8A1F…", "seq": 412 } }
 ```
+
+`frame` describes the newest live-stream frame (`null` if none yet). `seq` increases by one
+per frame received, so a consumer can tell how many it skipped; poll it and fetch
+`frame.jpg` only when it changes.
 
 The still's metadata rides along so a client can poll for *a new frame* by comparing `at`,
 without pulling the image itself once a second. Requesting a capture and then waiting for
 `still.at` to exceed the value seen beforehand is the intended way to await a shot — checking
 merely that a still exists would match a frame from an hour ago.
+
+### `GET /api/sensors/frame.jpg`
+The newest live-stream frame as `image/jpeg`, with `X-Frame-Seq` and `X-Frame-At` headers.
+404 until the first frame arrives. Only the latest is kept — there is no history and no
+video; a CV loop polls this at its own pace.
 
 ### `GET /api/sensors/transcript?since=<seq>`
 Newer transcript segments only.

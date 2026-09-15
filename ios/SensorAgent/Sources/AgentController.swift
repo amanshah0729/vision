@@ -25,6 +25,7 @@ final class AgentController: ObservableObject {
     private let dictation = Dictation()
     private let camera = GlassesCamera()
     private let keepalive = Keepalive()
+    private var streamer: FrameStreamer?
 
     /// One stable id per install, as PROTOCOL.md requires. Regenerating it on every
     /// launch would leave the bridge showing phantom devices until their TTL expired.
@@ -87,6 +88,7 @@ final class AgentController: ObservableObject {
         task = nil
         keepalive.stop()
         dictation.stop()
+        stopStream()
         camera.stop()
         running = false
         status = "idle"
@@ -146,9 +148,40 @@ final class AgentController: ObservableObject {
                 PoCLog.write("AGENT: camera.still FAILED \(error) — \(error.localizedDescription)")
                 await set(status: error.localizedDescription)
             }
+        case "camera.stream.start":
+            await set(status: "streaming")
+            PoCLog.write("AGENT: camera.stream.start")
+            do {
+                try await GlassesCamera.ensureAccess()
+                var cfg = FrameStreamer.Config()
+                if let v = command.number("fps"), v > 0 { cfg.fps = min(v, 10) }
+                if let v = command.number("maxWidth"), v > 0 { cfg.maxWidth = Int(min(v, 1280)) }
+                if let v = command.number("quality"), v > 0, v <= 1 { cfg.quality = v }
+                if let v = command.number("maxSeconds"), v > 0 { cfg.maxSeconds = min(v, 3600) }
+                stopStream()
+                let s = FrameStreamer(config: cfg, client: client) { [weak self] in
+                    Task { @MainActor in self?.stopStream(); self?.status = "online" }
+                }
+                streamer = s
+                try await camera.startFrames { buffer in s.handle(buffer) }
+            } catch {
+                PoCLog.write("AGENT: camera.stream.start FAILED \(error) — \(error.localizedDescription)")
+                stopStream()
+                await set(status: error.localizedDescription)
+            }
+        case "camera.stream.stop":
+            PoCLog.write("AGENT: camera.stream.stop")
+            stopStream()
+            await set(status: "online")
         default:
             break
         }
+    }
+
+    private func stopStream() {
+        camera.stopFrames()
+        streamer?.stop()
+        streamer = nil
     }
 
     private func set(status value: String) async {

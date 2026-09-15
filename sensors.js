@@ -13,6 +13,7 @@
 const DEVICE_TTL_MS = 90_000;   // no heartbeat for this long and you are gone
 const LONGPOLL_MS = 25_000;     // under the usual 30s proxy idle timeout
 const MAX_STILL_BYTES = 3 * 1024 * 1024;
+const MAX_FRAME_BYTES = 1024 * 1024;   // live frames are small on purpose (see PROTOCOL.md)
 const KEEP_SEGMENTS = 50;
 
 const devices = new Map();      // deviceId -> { deviceId, name, caps, at }
@@ -22,6 +23,8 @@ const waiters = new Map();      // deviceId -> [resolve]
 let segments = [];              // transcript ring buffer
 let seq = 0;
 let still = null;               // { buf, at, deviceId }
+let frame = null;               // { buf, at, deviceId, seq } — latest live-stream frame
+let frameSeq = 0;
 let cmdSeq = 0;
 
 /* ---------- helpers ---------- */
@@ -133,6 +136,7 @@ export async function handleSensors(req, res, url) {
     json(res, 200, {
       devices: liveDevices(),
       still: still ? { at: still.at, bytes: still.buf.length, deviceId: still.deviceId } : null,
+      frame: frame ? { at: frame.at, bytes: frame.buf.length, deviceId: frame.deviceId, seq: frame.seq } : null,
     });
     return true;
   }
@@ -218,6 +222,42 @@ export async function handleSensors(req, res, url) {
     return true;
   }
 
+  // Live stream: the phone POSTs small JPEGs at a few fps while `camera.stream.start` is
+  // active; only the newest is kept. Consumers (a CV loop, the glasses page) poll `frame.seq`
+  // in GET /api/sensors and fetch frame.jpg when it changes. No history, by design.
+  if (p === '/api/sensors/frame' && m === 'POST') {
+    if (Number(req.headers['content-length'] || 0) > MAX_FRAME_BYTES) {
+      json(res, 413, { error: 'frame too large' });
+      req.destroy();
+      return true;
+    }
+    let buf;
+    try { buf = await readRaw(req, MAX_FRAME_BYTES); } catch {
+      if (!res.writableEnded) json(res, 413, { error: 'frame too large' });
+      req.destroy();
+      return true;
+    }
+    if (!buf.length) { json(res, 400, { error: 'empty body' }); return true; }
+    const deviceId = url.searchParams.get('deviceId') || null;
+    frame = { buf, at: Date.now(), deviceId, seq: ++frameSeq };
+    if (deviceId && devices.has(deviceId)) devices.get(deviceId).at = Date.now();
+    json(res, 200, { ok: true, bytes: buf.length, at: frame.at, seq: frame.seq });
+    return true;
+  }
+
+  if (p === '/api/sensors/frame.jpg' && m === 'GET') {
+    if (!frame) { json(res, 404, { error: 'no frame yet' }); return true; }
+    res.writeHead(200, {
+      'Content-Type': 'image/jpeg',
+      'Content-Length': frame.buf.length,
+      'Cache-Control': 'no-store',
+      'X-Frame-Seq': String(frame.seq),
+      'X-Frame-At': String(frame.at),
+    });
+    res.end(frame.buf);
+    return true;
+  }
+
   if (p === '/api/sensors/commands' && m === 'GET') {
     const deviceId = url.searchParams.get('deviceId');
     if (!deviceId) {
@@ -233,7 +273,7 @@ export async function handleSensors(req, res, url) {
 
   if (p === '/api/sensors/command' && m === 'POST') {
     const b = await readJson(req);
-    const ACTIONS = ['mic.start', 'mic.stop', 'camera.still'];
+    const ACTIONS = ['mic.start', 'mic.stop', 'camera.still', 'camera.stream.start', 'camera.stream.stop'];
     if (!ACTIONS.includes(b.action)) {
       json(res, 400, { error: 'unknown action' });
       return true;
@@ -256,6 +296,11 @@ export async function handleSensors(req, res, url) {
  *  live buffer rather than a copy — callers must not mutate it. */
 export function latestStill() {
   return still;
+}
+
+/** The latest live-stream frame (see POST /api/sensors/frame), or null. */
+export function latestFrame() {
+  return frame;
 }
 
 /** Test seam: drop all state. */

@@ -9,6 +9,26 @@ import Foundation
 public struct BridgeCommand: Decodable, Sendable {
     public let id: String
     public let action: String
+    /// Free-form per-action arguments (e.g. `camera.stream.start`'s fps). Foundation-only
+    /// JSON, so a tiny value enum rather than `Any`.
+    public let args: [String: JSONValue]?
+
+    public func number(_ key: String) -> Double? {
+        if case let .number(n)? = args?[key] { return n }
+        return nil
+    }
+}
+
+public enum JSONValue: Decodable, Sendable {
+    case number(Double), string(String), bool(Bool), null
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let n = try? c.decode(Double.self) { self = .number(n) }
+        else if let s = try? c.decode(String.self) { self = .string(s) }
+        else { self = .null } // arrays/objects: unused by any action today
+    }
 }
 
 public enum BridgeError: Error, CustomStringConvertible {
@@ -107,6 +127,15 @@ public final class BridgeClient: @unchecked Sendable {
     /// resetting the socket, so a rejection is readable instead of a bare failure.
     public func postStill(_ jpeg: Data) async throws {
         try await send(request("POST", "api/sensors/still",
+                               query: [URLQueryItem(name: "deviceId", value: deviceId)],
+                               body: jpeg, contentType: "image/jpeg"))
+    }
+
+    /// One live-stream frame: a small JPEG. Fire-and-forget quality of service — the bridge
+    /// keeps only the newest, so a lost frame costs nothing and a slow one is skipped by
+    /// the sender rather than queued.
+    public func postFrame(_ jpeg: Data) async throws {
+        try await send(request("POST", "api/sensors/frame",
                                query: [URLQueryItem(name: "deviceId", value: deviceId)],
                                body: jpeg, contentType: "image/jpeg"))
     }

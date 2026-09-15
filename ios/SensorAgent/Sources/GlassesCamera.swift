@@ -1,4 +1,5 @@
 #if os(iOS)
+import CoreMedia
 import Foundation
 import MWDATCamera
 import MWDATCore
@@ -139,7 +140,10 @@ final class GlassesCamera {
             // `medium` at 15fps on purpose. Bandwidth over Bluetooth Classic is the binding
             // constraint, and DAT degrades quality to fit — asking for less up front yields
             // a *better* looking still than asking for `.high` and being throttled into it.
-            try session.addCamera(config: StreamConfiguration(videoCodec: .raw,
+            // `.hvc1`, not `.raw`: on hardware `.raw` reaches `.streaming` and serves photos but
+            // never delivers video frames, and one session now serves both stills and the live
+            // frame stream (`startFrames`). Photos still come back as full 1080×1440 JPEGs.
+            try session.addCamera(config: StreamConfiguration(videoCodec: .hvc1,
                                                               resolution: .medium,
                                                               frameRate: 15))
         }()
@@ -204,7 +208,26 @@ final class GlassesCamera {
         return session
     }
 
+    // MARK: - Live frames
+
+    private var frameToken: (any AnyListenerToken)?
+
+    /// Tap the live video: `handler` gets every compressed HEVC sample buffer off the glasses
+    /// (~15–30/s). Brings the session/stream up if needed. The caller decodes and throttles;
+    /// this hands over raw buffers because skipping P-frames before the decoder breaks it.
+    func startFrames(_ handler: @escaping @Sendable (CMSampleBuffer) -> Void) async throws {
+        let stream = try await liveStream()
+        stopFrames()
+        frameToken = stream.videoFramePublisher.listen { frame in handler(frame.sampleBuffer) }
+    }
+
+    func stopFrames() {
+        if let t = frameToken { Task { await t.cancel() } }
+        frameToken = nil
+    }
+
     func stop() {
+        stopFrames()
         let tokens = self.tokens
         self.tokens = []
         Task { for token in tokens { await token.cancel() } }

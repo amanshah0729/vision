@@ -59,8 +59,9 @@ html, body {
   </div>
   <div class="chips">
     <button class="chip focusable" id="btn-shot">Take a frame</button>
+    <button class="chip focusable" id="btn-live">Live</button>
   </div>
-  <footer class="hint">▲▼ move · pinch to capture</footer>
+  <footer class="hint">◀▶ move · pinch to select</footer>
 </section>
 <script>
 const TOKEN = (() => {
@@ -147,11 +148,67 @@ async function capture() {
   }, 500);
 }
 
+/* Live mode: ask the phone to stream small frames (PROTOCOL.md camera.stream.start) and
+   show each new one as it lands. A few fps with a second or two of lag — this is a debug
+   view of what a CV loop on the bridge would see, not video. */
+let live = null;   // { timer, lastSeq, shown, startedAt }
+async function toggleLive() {
+  if (live) { await stopLive(); return; }
+  stopWait();
+  try {
+    const d = await api('/api/sensors');
+    const cam = (d.devices || []).find((x) => (x.caps || []).includes('camera'));
+    if (!cam) { note('No camera client online. Open the Sensor Agent on your phone.', true); return; }
+    standIn = !(cam.caps || []).includes('glasses-camera');
+    await api('/api/sensors/command', { method: 'POST',
+      body: { action: 'camera.stream.start', deviceId: cam.deviceId, args: { fps: 4, maxWidth: 480 } } });
+  } catch (e) {
+    note(e.status === 401 ? 'Token rejected — reopen with ?k=…' : 'Stream failed (' + e.message + ')', true);
+    return;
+  }
+  live = { lastSeq: 0, shown: 0, startedAt: Date.now(), timer: null };
+  $('btn-live').textContent = 'Stop live';
+  note('Starting stream…', false, true);
+  live.timer = setInterval(async () => {
+    try {
+      const d = await api('/api/sensors');
+      if (d.frame && d.frame.seq > live.lastSeq) {
+        live.lastSeq = d.frame.seq; live.shown++;
+        const img = $('shot');
+        img.src = '/api/sensors/frame.jpg?k=' + encodeURIComponent(TOKEN) + '&s=' + d.frame.seq;
+        img.hidden = false; $('note').hidden = true; $('stage').classList.remove('busy');
+        const fps = (live.shown / Math.max(1, (Date.now() - live.startedAt) / 1000)).toFixed(1);
+        const m = $('meta');
+        m.textContent = (standIn ? 'STAND-IN · ' : '') + 'LIVE · ' + fps + ' fps · #' + d.frame.seq;
+        m.className = 'meta' + (standIn ? ' standin' : '');
+      }
+    } catch {}
+  }, 250);
+}
+async function stopLive() {
+  if (!live) return;
+  clearInterval(live.timer); live = null;
+  $('btn-live').textContent = 'Live';
+  $('meta').textContent = 'stopped';
+  try { await api('/api/sensors/command', { method: 'POST', body: { action: 'camera.stream.stop' } }); } catch {}
+}
+
+const CHIPS = ['btn-shot', 'btn-live'];
+function moveFocus(delta) {
+  const i = CHIPS.indexOf(document.activeElement && document.activeElement.id);
+  const next = CHIPS[(i < 0 ? 0 : i + delta + CHIPS.length) % CHIPS.length];
+  $(next).focus();
+}
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); capture(); }
-  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); $('btn-shot').focus(); }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (document.activeElement && document.activeElement.id === 'btn-live') toggleLive(); else capture();
+  }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); moveFocus(-1); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); moveFocus(1); }
 });
 $('btn-shot').addEventListener('click', capture);
+$('btn-live').addEventListener('click', toggleLive);
 $('btn-shot').focus();
 if (!TOKEN) note('Missing token — open this with ?k=…', true);
 else capture();
