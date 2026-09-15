@@ -105,6 +105,11 @@ struct ContentView: View {
             .navigationTitle("Sensor Agent")
             .navigationDestination(isPresented: $autoPoC) { CameraPoCView(autoStart: true) }
             .onAppear { if autoAgent && !agent.running { agent.start() } }
+            // Correlate stalls with the phone's own lifecycle in the same log.
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in PoCLog.write("APP: background") }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in PoCLog.write("APP: foreground") }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in PoCLog.write("APP: locked") }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in PoCLog.write("APP: unlocked") }
         }
     }
 }

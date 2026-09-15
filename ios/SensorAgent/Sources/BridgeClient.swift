@@ -164,7 +164,11 @@ public final class BridgeClient: @unchecked Sendable {
                     lastRegister = Date()
                 }
                 for command in try await pollCommands() {
-                    await handle(command)
+                    // Detached on purpose: a command can block on a human (registration in
+                    // Meta AI, a permission prompt) or run for minutes (a stream). Awaiting it
+                    // here stalled polling, the bridge expired the device after 90 s, and every
+                    // later command was refused "no matching device" — seen on hardware.
+                    Task { await handle(command) }
                 }
                 // Reconnect immediately: the bridge, not the client, decides how long
                 // to hold. Sleeping here would only add latency to the next command.

@@ -137,6 +137,14 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   interruptions), and a locked phone cannot be relaunched from the Mac. The app now
   auto-connects on any launch when a bridge is saved, so recovery is one tap on the icon.
 
+- **Live frame stream (2026-09-15).** `camera.stream.start {fps,maxWidth,quality,maxSeconds}`
+  → `FrameStreamer` decodes the glasses' HEVC in hardware (VideoToolbox), scales, JPEGs and
+  posts one frame at a time to `POST /api/sensors/frame`; the bridge keeps only the newest
+  (`GET /api/sensors/frame.jpg`, `frame.seq` in `GET /api/sensors`). Designed for a CV loop
+  on the bridge, not for video: a few fps, newest-wins, no history. `GlassesCamera` now
+  streams `.hvc1` so stills and frames share one session. Auto-stops after `maxSeconds`
+  (default 600) — streaming keeps the glasses' camera on and their battery dies in a few
+  runs. The mock tests pass with `.hvc1`; see README "Status" for what was measured live.
 - **There is a mic PoC** (`MicPoC` + `MicPoCView`). The glasses' mic is plain Bluetooth
   HFP, not DAT, so `Dictation.preferBluetoothHFP` routes speech capture to it via
   `AVAudioSession`. Needs no entitlements and no paid account. Unverified on hardware.

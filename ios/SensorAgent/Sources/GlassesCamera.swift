@@ -153,6 +153,10 @@ final class GlassesCamera {
         let stream = camera.stream
         let live = Inbox<Result<Void, Failure>>()
         let token = stream.statePublisher.listen { state in
+            // Logged because on hardware the live stream stalled ~13 s into a run with the
+            // phone locked while the same run in the foreground was flawless; the reason is
+            // only visible here (DAT pauses the stream) or on the error publisher below.
+            PoCLog.write("CAMERA: stream state = \(state)")
             switch state {
             case .streaming: live.deliver(.success(()))
             case .stopped:   live.deliver(.failure(.sessionEnded))
@@ -160,6 +164,12 @@ final class GlassesCamera {
             }
         }
         tokens.append(token)
+        tokens.append(stream.errorPublisher.listen { error in
+            PoCLog.write("CAMERA: stream ERROR = \(error) — \(error.localizedDescription)")
+        })
+        tokens.append(camera.statePublisher.listen { state in
+            PoCLog.write("CAMERA: camera state = \(state)")
+        })
 
         stream.start()
         try await Self.bounded(30, "stream start") { await live.wait() }.get()
@@ -193,7 +203,11 @@ final class GlassesCamera {
         // rule the stream below follows, and one Meta's sample calls out explicitly. The old
         // code iterated `stateStream()` after start(), which dropped the transition and hung.
         let live = Inbox<Result<Void, Failure>>()
+        tokens.append(session.errorPublisher.listen { error in
+            PoCLog.write("CAMERA: session ERROR = \(error) — \(error.localizedDescription)")
+        })
         let token = session.statePublisher.listen { state in
+            PoCLog.write("CAMERA: session state = \(state)")
             switch state {
             case .started: live.deliver(.success(()))
             case .stopped: live.deliver(.failure(.sessionEnded))
