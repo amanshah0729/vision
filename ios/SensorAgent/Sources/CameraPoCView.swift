@@ -18,7 +18,7 @@ struct CameraPoCView: View {
                     Color.black
                     // Hardware-decoded live feed (HEVC off real glasses). Sits under the
                     // still, so a captured photo briefly replaces the feed when it lands.
-                    SampleBufferView(layer: poc.displayLayer)
+                    SampleBufferView(layer: poc.displayLayer, onLayer: { poc.displayLayer = $0 })
                     if let frame = poc.frame {
                         Image(uiImage: frame).resizable().scaledToFit()
                     } else if poc.frameCount == 0 {
@@ -78,24 +78,32 @@ struct CameraPoCView: View {
     }
 
     /// Hosts an `AVSampleBufferDisplayLayer` in SwiftUI. Plain UIKit because SwiftUI has no
-    /// sample-buffer sink of its own.
+    /// sample-buffer sink of its own. The layer is the view's *backing* layer (`layerClass`)
+    /// rather than a sublayer, so it always has the view's bounds — a sublayer sized in
+    /// `updateUIView` can be left at zero size if no SwiftUI update lands after layout.
     private struct SampleBufferView: UIViewRepresentable {
         let layer: AVSampleBufferDisplayLayer
 
+        final class HostView: UIView {
+            override class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
+        }
+
         func makeUIView(context: Context) -> UIView {
-            let view = UIView()
+            let view = HostView()
             view.backgroundColor = .black
-            layer.videoGravity = .resizeAspect
-            view.layer.addSublayer(layer)
+            // The PoC owns one layer for its lifetime; the host view adopts it by
+            // re-parenting the enqueued frames' sink. `layerClass` makes the view's own
+            // layer a display layer, so hand that one back to the PoC instead.
+            if let own = view.layer as? AVSampleBufferDisplayLayer {
+                own.videoGravity = .resizeAspect
+                onLayer(own)
+            }
             return view
         }
 
-        func updateUIView(_ view: UIView, context: Context) {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer.frame = view.bounds
-            CATransaction.commit()
-        }
+        func updateUIView(_ view: UIView, context: Context) {}
+
+        var onLayer: (AVSampleBufferDisplayLayer) -> Void = { _ in }
     }
 
     private func name(_ res: StreamingResolution) -> String {

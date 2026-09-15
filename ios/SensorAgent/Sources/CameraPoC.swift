@@ -21,7 +21,7 @@ final class CameraPoC: ObservableObject {
     /// Live view sink. Frames off real glasses are compressed HEVC (`.hvc1`, 504×896) and
     /// `VideoFrame.makeUIImage()` returns nil for them, so the feed is rendered by handing the
     /// raw sample buffers to this layer, which decodes in hardware. `CameraPoCView` hosts it.
-    let displayLayer = AVSampleBufferDisplayLayer()
+    var displayLayer = AVSampleBufferDisplayLayer()
     @Published var running = false
     @Published var status = "idle"
     /// True once the stream reaches `.streaming` — the whole session/camera/stream bring-up
