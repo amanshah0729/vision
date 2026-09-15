@@ -34,8 +34,13 @@ struct ContentView: View {
     /// `ios/SensorAgent/device.sh run` (which wraps `xcrun devicectl device process launch … -- -autoStartCameraPoC`)
     /// then `device.sh log`. Exists because nobody is guaranteed to be holding the phone.
     @State private var autoPoC = CommandLine.arguments.contains("-autoStartCameraPoC")
-    /// `-autoStartAgent` (with `-bridgeURL`/`-bridgeToken`) connects to the bridge on launch.
+    /// Connect on launch when `-autoStartAgent` is passed, or whenever a bridge URL and token
+    /// are already saved. iOS will eventually terminate the agent (memory pressure, a reboot,
+    /// a swipe-up), and with the phone locked nothing can relaunch it — so recovery has to be
+    /// a single tap on the icon with no typing, not a form.
     private let autoAgent = CommandLine.arguments.contains("-autoStartAgent")
+        || (!(UserDefaults.standard.string(forKey: "baseURL") ?? "").isEmpty
+            && !(UserDefaults.standard.string(forKey: "token") ?? "").isEmpty)
 
     var body: some View {
         NavigationStack {

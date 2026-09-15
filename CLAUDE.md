@@ -130,8 +130,12 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   <token>` → phone registers with `glasses-camera` → `POST camera.still` → still on the
   bridge in 3.7 s warm (capture 1.3 s + upload 1.6 s over cellular), ~34 s cold. The
   glasses browser side (`look.html`) was stood in for by curl; still to be tapped for real.
-  **Known gap:** the app must stay foregrounded — locking the phone suspends it, the
-  long-poll dies, and commands queue until relaunch.
+  **Backgrounding solved 2026-09-15** with `Keepalive` (silent looping `.playback` session):
+  8 min behind Settings still polling, capture in 5 s; pinches from the glasses with the
+  phone locked and away worked. `look.html` verified on the glasses browser. **Remaining
+  gap:** iOS can still terminate the app (it did, after ~4 h and several audio
+  interruptions), and a locked phone cannot be relaunched from the Mac. The app now
+  auto-connects on any launch when a bridge is saved, so recovery is one tap on the icon.
 
 - **There is a mic PoC** (`MicPoC` + `MicPoCView`). The glasses' mic is plain Bluetooth
   HFP, not DAT, so `Dictation.preferBluetoothHFP` routes speech capture to it via

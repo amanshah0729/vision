@@ -75,6 +75,12 @@ First launch opens Meta AI for you to approve the app, then asks for camera perm
 Both are one tap and happen on the phone. After that the run is hands-free: unfold the
 glasses, keep the phone unlocked, and `device.sh run`.
 
+For the real thing: `./device.sh bridge https://your-bridge <token>` connects the agent to
+a bridge, and it stays connected with the phone locked. On a free Personal Team every
+device build that needs a new profile mints a new certificate (`PROVISION=1`), and a key
+minted by one build will prompt for the Mac login password on the next — if you don't have
+that password, just build with `PROVISION=1` each time and prune old certificates.
+
 Things that bit us, so you can skip them:
 
 - **Build ≠ run.** `CODE_SIGNING_ALLOWED=NO` compiles but DAT's `configure()` needs the
@@ -100,11 +106,13 @@ Honest and incomplete:
   JPEG posted back → fetched from `/api/sensors/still.jpg`. 3.7 s warm, ~34 s the first
   time while the DAT session comes up. Put the bridge behind HTTPS — the glasses browser
   refuses plain http.
-- Not yet done: the phone app has to be in the foreground. iOS suspends it when the
-  screen locks, the long-poll stops, and commands queue until it is reopened. Keeping it
-  alive in the background (an audio session, or push) is the next real problem.
-- The glasses page `look.html` has not been exercised on the glasses browser since the
-  split; the same requests were made with curl.
+- The agent survives backgrounding and a locked screen: it holds a silent audio session
+  under the `audio` background mode. Verified 2026-09-15: eight minutes behind another app,
+  still polling, capture in 5 s; and pinches from the glasses with the phone locked and
+  away. It does *not* survive iOS terminating the app (memory pressure, reboot, swipe-up),
+  and a locked phone cannot be relaunched remotely — so the app reconnects by itself on
+  any launch once a bridge is saved, and recovery is one tap on the icon.
+- `look.html` verified on the glasses browser: pinch → still on the display in ~5 s.
 - Android is a protocol away. Nothing here is shared with iOS except `PROTOCOL.md`, on
   purpose.
 
