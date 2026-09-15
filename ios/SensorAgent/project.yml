@@ -30,6 +30,16 @@ targets:
       properties:
         keychain-access-groups:
           - $(AppIdentifierPrefix)$(CFBundleIdentifier)
+        # CAMERA STREAMING NEEDS the two Wi-Fi entitlements below. Since DAT 0.8.0 camera
+        # frames travel over the glasses' Wi-Fi SoftAP, not Bluetooth; without them iOS cannot
+        # join that network, so the stream sits in `waitingForDevice` and fails after exactly
+        # 30s with `deviceNotConnected` — even on a `.connected`/`.compatible` device. Verified
+        # on hardware (Ray-Ban Display, DAT 0.9.0) and matching DAT discussions #255/#240/#275.
+        # They are commented out because a FREE Apple personal team cannot provision them
+        # ("Personal development teams do not support the Hotspot and Access Wi-Fi Information
+        # capabilities"). Uncomment once enrolled in the paid Apple Developer Program:
+        #   com.apple.developer.networking.wifi-info: true
+        #   com.apple.developer.networking.HotspotConfiguration: true
     dependencies:
       - package: MWDAT
         product: MWDATCore

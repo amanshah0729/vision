@@ -72,6 +72,9 @@ struct ContentView: View {
                     NavigationLink("Camera PoC — live feed + latency") {
                         CameraPoCView()
                     }
+                    NavigationLink("Mic PoC — glasses mic (Bluetooth)") {
+                        MicPoCView()
+                    }
                 }
                 Section {
                     Button(agent.running ? "Stop" : "Start") {

@@ -60,21 +60,34 @@ final class CameraPoC: ObservableObject {
 
         Task { @MainActor in
             do {
+                PoCLog.write("PoCDIAG: ===== Start tapped: mock=\(useMockGlasses) res=\(resolution) fps=\(frameRate) =====")
                 if useMockGlasses {
                     GlassesMock.enable()
                     await GlassesMock.awaitReady()
                 }
                 status = "checking access…"
                 try await GlassesCamera.ensureAccess()
+                PoCLog.write("PoCDIAG: access ok; registration=\(Wearables.shared.registrationState)")
 
                 status = "starting session…"
                 let wearables = Wearables.shared
                 let selector = AutoDeviceSelector(wearables: wearables)
-                try await waitUntil("device selection", 8) { selector.activeDevice != nil }
+                try await waitUntil("device selection", 15) { selector.activeDevice != nil }
+                PoCLog.write("PoCDIAG: selected device = \(String(describing: selector.activeDevice))")
                 let session = try wearables.createSession(deviceSelector: selector)
                 self.session = session
+                // Session-level state + error, so a stalled/rejected session shows its reason.
+                tokens.append(session.statePublisher.listen { state in
+                    PoCLog.write("PoCDIAG: session state = \(state)")
+                })
+                tokens.append(session.errorPublisher.listen { error in
+                    PoCLog.write("PoCDIAG: session ERROR = \(error) — \(error.localizedDescription)")
+                })
                 try session.start()
-                try await waitUntil("session start", 10) { session.state == .started }
+                // 30s, matching GlassesCamera: Bluetooth session setup to the glasses is slow
+                // and variable — a 10s ceiling times out before the handshake finishes.
+                try await waitUntil("session start", 30) { session.state == .started }
+                PoCLog.write("PoCDIAG: session .started")
 
                 status = "starting stream…"
                 // `.hvc1` (compressed), matching Meta's streaming sample: the video-frame
@@ -85,15 +98,18 @@ final class CameraPoC: ObservableObject {
                     throw PoCError.noCamera
                 }
                 self.camera = camera
+                PoCLog.write("PoCDIAG: camera added, config res=\(resolution) fps=\(frameRate)")
                 // The mock only pumps video frames once a camera exists; re-apply the feed now.
                 if useMockGlasses { GlassesMock.reapplyFeed() }
                 let stream = camera.stream
                 attachListeners(to: stream)
                 stream.start()
-                try await waitUntil("stream start", 15) { stream.state == .streaming }
+                try await waitUntil("stream start", 30) { stream.state == .streaming }
                 reachedStreaming = true
+                PoCLog.write("PoCDIAG: reached .streaming")
                 status = "streaming"
             } catch {
+                PoCLog.write("PoCDIAG: start FAILED = \(error) — \(error.localizedDescription)")
                 status = "failed: \(error.localizedDescription)"
                 stop()
             }
@@ -136,15 +152,20 @@ final class CameraPoC: ObservableObject {
         // `VideoFrame`, `PhotoData`, `StreamState`, `StreamError` are all Sendable, so hop the
         // value to the main actor and do the (cheap, for .raw) UIImage decode there.
         tokens.append(stream.videoFramePublisher.listen { [weak self] frame in
-            Task { @MainActor in self?.onFrame(frame) }
+            Task { @MainActor in
+                if self?.frameCount == 0 { PoCLog.write("PoCDIAG: first video frame arrived") }
+                self?.onFrame(frame)
+            }
         })
         tokens.append(stream.photoDataPublisher.listen { [weak self] photo in
             Task { @MainActor in self?.onPhoto(photo) }
         })
         tokens.append(stream.statePublisher.listen { [weak self] state in
+            PoCLog.write("PoCDIAG: stream state = \(state)")
             Task { @MainActor in if self?.running == true { self?.status = "stream: \(state)" } }
         })
         tokens.append(stream.errorPublisher.listen { [weak self] error in
+            PoCLog.write("PoCDIAG: stream ERROR = \(error) — \(error.localizedDescription)")
             Task { @MainActor in
                 self?.status = "error: \(error.localizedDescription)"
                 self?.stop()
