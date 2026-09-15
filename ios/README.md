@@ -115,7 +115,7 @@ swiftc -O ios/SensorAgent/Sources/BridgeClient.swift tools/swift-sensor/main.swi
 ## Use
 
 1. Run the bridge: `./start.sh` in this repo (port 8791; the shared tunnel in
-   `../../tunnel/config.yml` publishes it as `vision.glasses.orthosoftwaresucks.com`)
+   `../../tunnel/config.yml` publishes it as `vision.orthosoftwaresucks.com`)
 2. In the app, paste the bridge URL (`https://…`, no `?k=`) and the token from `.token`
 3. Start. The phone appears in `GET /api/sensors` within a second or two.
 4. Queue a command:

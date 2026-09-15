@@ -4,7 +4,7 @@
 #   ./start.sh            → bridge on $PORT (default 8791)
 #
 # No --tunnel flag here on purpose: the public hostname comes from the shared named
-# tunnel in ../tunnel/config.yml (vision.glasses.orthosoftwaresucks.com → :8791),
+# tunnel in ../tunnel/config.yml (vision.orthosoftwaresucks.com → :8791),
 # run by the com.glasses.tunnel LaunchAgent. One tunnel, many apps.
 #
 # The token lives in .token so the URL saved on the glasses and the phone survives

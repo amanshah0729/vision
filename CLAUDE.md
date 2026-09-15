@@ -119,7 +119,7 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   that is scriptable. Do not claim to have access. This is the only thing between the mock and
   a real capture.
 - **The host exists now (`server.js`) but is not deployed.** Same token scheme as
-  Sightline, port 8791, hostname `vision.glasses.orthosoftwaresucks.com` in
+  Sightline, port 8791, hostname `vision.orthosoftwaresucks.com` in
   `../tunnel/config.yml`, LaunchAgent in `../deploy/com.vision.bridge.plist`. Verified
   2026-09-14 locally with `tools/fake-sensor.sh` and `tools/swift-sensor` (register →
   `camera.still` → still lands → `mic.start` → transcripts land). Installing the LaunchAgent
