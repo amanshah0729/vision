@@ -52,10 +52,23 @@ final class GlassesCamera {
         DAT.configureOnce()
         let wearables = Wearables.shared
 
+        PoCLog.write("PoCDIAG: registrationState=\(wearables.registrationState) devices=\(wearables.devices.count)")
         if wearables.registrationState != .registered {
-            try await wearables.startRegistration()
+            do {
+                try await wearables.startRegistration()
+                PoCLog.write("PoCDIAG: startRegistration returned; state=\(wearables.registrationState)")
+            } catch {
+                PoCLog.write("PoCDIAG: startRegistration THREW \(error) — \(error.localizedDescription)")
+                throw error
+            }
             try await awaitRegistration(wearables)
         }
+
+        // The permission check itself needs a *connected* pair: with the glasses known but
+        // asleep/out of range it throws "All discovered devices are powered off or
+        // disconnected" instantly (seen on hardware 2026-09-14). The link comes up a few
+        // seconds after the glasses are unfolded/worn, so wait for it rather than fail.
+        try await awaitConnectedDevice(wearables, seconds: 30)
 
         // `.denied` is not final — the user can still say yes to the prompt, which is why
         // this asks rather than giving up on a negative check.
@@ -65,8 +78,27 @@ final class GlassesCamera {
         }
     }
 
+    private static func awaitConnectedDevice(_ wearables: any WearablesInterface,
+                                             seconds: Double) async throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        var lastReport = ""
+        while Date() < deadline {
+            let devices = wearables.devices.compactMap { wearables.deviceForIdentifier($0) }
+            let report = devices.map { "\($0.nameOrId()) link=\($0.linkState) compat=\($0.compatibility())" }
+                .joined(separator: "; ")
+            if report != lastReport {
+                PoCLog.write("PoCDIAG: devices: \(report.isEmpty ? "none" : report)")
+                lastReport = report
+            }
+            if devices.contains(where: { $0.linkState == .connected }) { return }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        throw Failure.timedOut("waiting for the glasses to connect (unfold and wear them)")
+    }
+
     private static func awaitRegistration(_ wearables: any WearablesInterface) async throws {
         for await state in wearables.registrationStateStream() {
+            PoCLog.write("PoCDIAG: registration stream -> \(state)")
             switch state {
             case .registered: return
             case .unavailable: throw Failure.notRegistered

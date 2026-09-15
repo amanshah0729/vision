@@ -52,6 +52,23 @@ Worth knowing before touching that file:
 - **Ask for less bandwidth, get a better picture.** DAT degrades quality to fit Bluetooth
   Classic. Requesting `.medium`/15fps yields a cleaner still than requesting `.high` and
   being throttled into it.
+- **Two links carry camera frames, and the Info.plist decides which exist.** Since 0.8.0
+  DAT streams over either Bluetooth Classic (ExternalAccessory, ~8 fps) or the glasses'
+  SoftAP Wi-Fi (~24 fps). Wi-Fi needs the `wifi-info` + `HotspotConfiguration` entitlements,
+  which a **free Apple personal team cannot provision** — so on a free team Bluetooth is the
+  only link. Bluetooth in turn needs `UISupportedExternalAccessoryProtocols:
+  [com.meta.ar.wearable]` and `external-accessory` in `UIBackgroundModes`. With neither set
+  present, MWDATCore logs "Neither .medium nor .low link levels are available", the stream
+  sits in `waitingForDevice` and dies `deviceNotConnected` after exactly 30s. That is what
+  happened on hardware on 2026-09-11; the EA keys were missing. Found by `strings` on the
+  0.9.0 binaries (`"UISupportedExternalAccessoryProtocols must contain 'com.meta.ar.wearable'"`,
+  `"requires medium (BTC) or high (WiFi) bandwidth link"`), confirmed by Meta's own
+  integration config. Read `project.yml` before touching either block.
+- **Registration can silently drop.** On 2026-09-14 the app came up `.available` (not
+  registered) after being rebuilt with a changed Info.plist, though it had been `.registered`
+  on 09-11. Cause unconfirmed — reinstall, plist change, or Meta-side expiry. When it happens
+  `ensureAccess()` re-opens Meta AI and a human must tap approve again; a later reinstall the
+  same day did *not* drop it. Log `registrationState` before assuming anything.
 - **Subscribe to session and stream state *before* calling `start()`.** DAT does not replay
   the current state to a late listener, so watching `stateStream()` after `start()` silently
   misses `.started`/`.streaming` and hangs. `GlassesCamera` and Meta's own sample both attach
@@ -80,10 +97,16 @@ Worth knowing before touching that file:
 
 Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
 
-- **Still no *real* glasses.** The DAT capture path is now exercised end to end — but against
-  `MockDeviceKit`, not hardware. Registration, permission and pairing against a real pair, and
-  a real Bluetooth capture, remain unexercised. The mock proves the code; it does not prove the
-  device. Say which one you mean.
+- **Real glasses have streamed — 2026-09-14, Ray-Ban Display, DAT 0.9.0, free Apple team,
+  Bluetooth Classic link.** Driven unattended from the Mac (`-autoStartCameraPoC`, log pulled
+  with `devicectl`). Numbers from `poc.log`: link `connected` 1s after unfolding; session
+  `.started` <1s; stream `.streaming` 2s later; first frame 2s after that; `.medium`/30fps
+  requested → 30 fps bursts, dipping to 6–19 fps (Bluetooth), ~880 frames in 35s; one
+  `capturePhoto` → 265 KB JPEG in 1.5s. `VideoFrame.makeUIImage()` returns nil for `.hvc1`
+  frames on hardware (the sample buffer is compressed HEVC) — the live view needs a real
+  decoder (`AVSampleBufferDisplayLayer`), see `CameraPoC.onFrame`. The bridge path
+  (`GlassesCamera.capture` → `camera.still`) shares the same session/stream code but has not
+  itself been run against hardware yet.
 - **`MockDeviceKit` is wired and covered.** `GlassesMock` stands a fake Ray-Ban up (pair →
   powerOn → unfold → don → video feed + captured still), and `GlassesMockCaptureTests` drives
   the real `GlassesCamera` path against it — session → stream → `capturePhoto` — and asserts a
@@ -99,6 +122,16 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   out left the handler without a host. Nothing in this repo currently runs. Standing one up
   means reimplementing auth — do not just expose `handleSensors` unauthenticated.
 
+- **There is a mic PoC** (`MicPoC` + `MicPoCView`). The glasses' mic is plain Bluetooth
+  HFP, not DAT, so `Dictation.preferBluetoothHFP` routes speech capture to it via
+  `AVAudioSession`. Needs no entitlements and no paid account. Unverified on hardware.
+- **Hardware runs can be driven from the Mac.** Launch with
+  `xcrun devicectl device process launch --device <id> com.amanshah.glasses.SensorAgent -- -autoStartCameraPoC`
+  (the `--` matters; the phone must be unlocked) and pull `Documents/poc.log` with
+  `devicectl device copy from --domain-type appDataContainer --domain-identifier
+  com.amanshah.glasses.SensorAgent`. `print`/`NSLog` never reach the CLI; the file log is
+  the only way to read what DAT reported. `PoCLog` writes it; `CameraPoC` adds fps stats
+  every 5s and fires one capture at 10s so an unattended run leaves numbers behind.
 - **There is a live-camera PoC** (`CameraPoC` + `CameraPoCView`, reachable from the main
   screen). It opens the DAT video stream and shows fps, a photo capture round-trip time, and
   resolution/frame-rate knobs — a standalone harness for measuring how bad the real link is,

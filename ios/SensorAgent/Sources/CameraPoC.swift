@@ -1,4 +1,6 @@
 #if os(iOS)
+import AVFoundation
+import CoreMedia
 import Foundation
 import MWDATCamera
 import MWDATCore
@@ -16,6 +18,10 @@ import UIKit
 @MainActor
 final class CameraPoC: ObservableObject {
     @Published var frame: UIImage?
+    /// Live view sink. Frames off real glasses are compressed HEVC (`.hvc1`, 504×896) and
+    /// `VideoFrame.makeUIImage()` returns nil for them, so the feed is rendered by handing the
+    /// raw sample buffers to this layer, which decodes in hardware. `CameraPoCView` hosts it.
+    let displayLayer = AVSampleBufferDisplayLayer()
     @Published var running = false
     @Published var status = "idle"
     /// True once the stream reaches `.streaming` — the whole session/camera/stream bring-up
@@ -39,6 +45,9 @@ final class CameraPoC: ObservableObject {
     private var tokens: [any AnyListenerToken] = []
     private var frameTimes: [Date] = []
     private var captureStart: Date?
+    /// Writes fps/frame stats to `PoCLog` every 5s while streaming and fires one capture at
+    /// the 10s mark, so an unattended run still leaves the numbers in the log.
+    private var statsTask: Task<Void, Never>?
 
     enum PoCError: LocalizedError {
         case noCamera, timeout(String)
@@ -108,6 +117,7 @@ final class CameraPoC: ObservableObject {
                 reachedStreaming = true
                 PoCLog.write("PoCDIAG: reached .streaming")
                 status = "streaming"
+                startStatsLog()
             } catch {
                 PoCLog.write("PoCDIAG: start FAILED = \(error) — \(error.localizedDescription)")
                 status = "failed: \(error.localizedDescription)"
@@ -116,7 +126,25 @@ final class CameraPoC: ObservableObject {
         }
     }
 
+    private func startStatsLog() {
+        statsTask?.cancel()
+        statsTask = Task { @MainActor [weak self] in
+            var seconds = 0
+            while let self, self.running, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                seconds += 5
+                let capture = self.lastCaptureLatencyMs.map { "\($0)ms" } ?? "-"
+                PoCLog.write("PoCDIAG: stats t=\(seconds)s fps=\(self.fps) frames=\(self.frameCount) "
+                             + "size=\(self.frameSize) capture=\(capture) status=\(self.status)")
+                if seconds == 10 { self.measureCaptureLatency() }
+            }
+        }
+    }
+
     func stop() {
+        statsTask?.cancel()
+        statsTask = nil
+        displayLayer.sampleBufferRenderer.flush()
         let toks = tokens
         tokens = []
         Task { for t in toks { await t.cancel() } }
@@ -176,9 +204,20 @@ final class CameraPoC: ObservableObject {
     private func onFrame(_ frame: VideoFrame) {
         guard running else { return }
         frameCount += 1
+        // On real glasses over `.hvc1` the buffer is compressed HEVC, and `makeUIImage()` returns
+        // nil for it (seen on hardware 2026-09-14: 30 fps of frames, zero images). Read the
+        // dimensions and codec off the format description instead so the HUD is still honest.
+        if let desc = CMSampleBufferGetFormatDescription(frame.sampleBuffer) {
+            let dims = CMVideoFormatDescriptionGetDimensions(desc)
+            let codec = CMFormatDescriptionGetMediaSubType(desc)
+            let fourcc = String(bytes: [24, 16, 8, 0].map { UInt8((codec >> $0) & 0xff) }, encoding: .ascii) ?? "?"
+            frameSize = "\(dims.width)×\(dims.height) \(fourcc)"
+            if frameCount == 1 { PoCLog.write("PoCDIAG: frame format \(frameSize) decodable=\(frame.makeUIImage() != nil)") }
+        }
         if let image = frame.makeUIImage() {
             self.frame = image
-            frameSize = "\(Int(image.size.width))×\(Int(image.size.height))"
+        } else {
+            enqueueForDisplay(frame.sampleBuffer)
         }
         // fps = frames seen in the trailing second.
         let now = Date()
@@ -187,11 +226,36 @@ final class CameraPoC: ObservableObject {
         fps = frameTimes.count
     }
 
+    /// Push a compressed frame to the display layer. Marked display-immediately because the
+    /// buffers carry the glasses' clock, not the phone's, and we want live, not scheduled.
+    private func enqueueForDisplay(_ buffer: CMSampleBuffer) {
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(buffer, createIfNecessary: true) as? [CFMutableDictionary],
+           let first = attachments.first {
+            CFDictionarySetValue(first,
+                                 Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                                 Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
+        }
+        let renderer = displayLayer.sampleBufferRenderer
+        if renderer.status == .failed {
+            PoCLog.write("PoCDIAG: display layer failed: \(String(describing: renderer.error)) — flushing")
+            renderer.flush()
+        }
+        if renderer.isReadyForMoreMediaData { renderer.enqueue(buffer) }
+    }
+
     private func onPhoto(_ photo: PhotoData) {
         guard let start = captureStart else { return }
         lastCaptureLatencyMs = Int(Date().timeIntervalSince(start) * 1000)
+        PoCLog.write("PoCDIAG: photo delivered bytes=\(photo.data.count) latency=\(lastCaptureLatencyMs ?? -1)ms")
         captureStart = nil
-        if let image = UIImage(data: photo.data) { frame = image }
+        // Keep the last still on disk next to poc.log so an unattended run's picture can be
+        // pulled off the device and looked at — the only real proof the glasses saw something.
+        let url = PoCLog.url.deletingLastPathComponent().appendingPathComponent("last-photo.jpg")
+        try? photo.data.write(to: url)
+        if let image = UIImage(data: photo.data) {
+            frame = image
+            PoCLog.write("PoCDIAG: photo decoded \(Int(image.size.width))×\(Int(image.size.height)) saved=\(url.lastPathComponent)")
+        }
     }
 
     private func waitUntil(_ label: String, _ seconds: Double,

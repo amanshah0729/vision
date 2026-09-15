@@ -50,6 +50,24 @@ Both `.xcodeproj`, `Info.plist` and `SensorAgent.entitlements` are generated and
 Deployment target is iOS 17.2 because the MWDAT binaries are built against 17.2. Running on
 a real phone needs your own signing team; the bundle prefix is `com.amanshah.glasses`.
 
+Device build from the CLI (free Personal Team `29X3Z6635B`, already trusted on the phone):
+
+```sh
+xcodebuild -project SensorAgent.xcodeproj -scheme SensorAgent -sdk iphoneos \
+  -destination 'id=<device udid>' -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM=29X3Z6635B CODE_SIGN_STYLE=Automatic -derivedDataPath /tmp/sa-device build
+xcrun devicectl device install app --device <udid> /tmp/sa-device/Build/Products/Debug-iphoneos/SensorAgent.app
+```
+
+## Free team vs paid team
+
+Camera frames travel over one of two links. Bluetooth Classic (ExternalAccessory, ~8 fps)
+needs only the `UISupportedExternalAccessoryProtocols` / `external-accessory` Info.plist
+entries, which `project.yml` sets. The glasses' SoftAP Wi-Fi (~24 fps) additionally needs
+the `wifi-info` + `HotspotConfiguration` entitlements, which a free personal team cannot
+provision — they are commented out in `project.yml`. Enrol in the paid program only for
+the faster link; it is not needed to stream at all.
+
 ## What the glasses camera needs from *you*
 
 Compiling proves nothing about access. Before a capture can succeed:
@@ -93,6 +111,29 @@ wave your hand and watch the lag, drop the resolution and watch fps climb.
 live view stays blank on the simulator — `CameraPoCStreamTests` asserts only that it reaches
 `.streaming`. On device: run signed (same ad-hoc invocation as above), open the PoC, tap
 **Start stream**, approve the Meta AI prompts once, and the feed + fps/latency come alive.
+
+## Unattended hardware run
+
+Registration and camera permission need a human in Meta AI once per install. After that:
+
+```sh
+xcrun devicectl device process launch --terminate-existing --device <udid> \
+  com.amanshah.glasses.SensorAgent -- -autoStartCameraPoC     # phone must be unlocked
+xcrun devicectl device copy from --device <udid> --domain-type appDataContainer \
+  --domain-identifier com.amanshah.glasses.SensorAgent --source Documents/poc.log --destination poc.log
+```
+
+The PoC logs session/stream state, fps stats every 5s, and one timed capture at 10s; the
+still is saved beside the log as `Documents/last-photo.jpg`. Frames off real glasses are
+compressed HEVC (504×896 `hvc1`), so the live view renders them through an
+`AVSampleBufferDisplayLayer` — `makeUIImage()` returns nil for them.
+
+## Mic PoC
+
+**Main screen → "Mic PoC — glasses mic (Bluetooth)".** The glasses expose their mic as an
+ordinary Bluetooth HFP headset, so this needs no DAT at all: probe the inputs, toggle
+"Use glasses mic", start dictation, and the "Active input" line shows which mic is feeding
+the transcript. Unverified on hardware as of 2026-09-14.
 
 ## Test without a phone
 

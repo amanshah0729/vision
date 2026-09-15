@@ -30,14 +30,16 @@ targets:
       properties:
         keychain-access-groups:
           - $(AppIdentifierPrefix)$(CFBundleIdentifier)
-        # CAMERA STREAMING NEEDS the two Wi-Fi entitlements below. Since DAT 0.8.0 camera
-        # frames travel over the glasses' Wi-Fi SoftAP, not Bluetooth; without them iOS cannot
-        # join that network, so the stream sits in `waitingForDevice` and fails after exactly
-        # 30s with `deviceNotConnected` — even on a `.connected`/`.compatible` device. Verified
-        # on hardware (Ray-Ban Display, DAT 0.9.0) and matching DAT discussions #255/#240/#275.
-        # They are commented out because a FREE Apple personal team cannot provision them
-        # ("Personal development teams do not support the Hotspot and Access Wi-Fi Information
-        # capabilities"). Uncomment once enrolled in the paid Apple Developer Program:
+        # OPTIONAL — the Wi-Fi link. DAT >= 0.8.0 can carry camera frames two ways: Bluetooth
+        # Classic via ExternalAccessory (~8 fps per DAT discussion #116) or the glasses' SoftAP
+        # Wi-Fi (~24 fps). (DAT names the tiers inconsistently: MWDATCore logs Wi-Fi as
+        # `.medium` and Bluetooth as `.low`; MWDATCamera calls the same pair "high (WiFi)" and
+        # "medium (BTC)".) Wi-Fi needs the two entitlements below, which a FREE Apple personal
+        # team cannot provision ("Personal development teams do not support the Hotspot and
+        # Access Wi-Fi Information capabilities"). Without them MWDATCore logs ".medium link
+        # unavailable, falling back to .low" and streams over Bluetooth — provided the
+        # ExternalAccessory Info.plist keys below are present. Uncomment once enrolled in the
+        # paid Apple Developer Program for the faster link:
         #   com.apple.developer.networking.wifi-info: true
         #   com.apple.developer.networking.HotspotConfiguration: true
     dependencies:
@@ -59,7 +61,15 @@ targets:
         # glasses lose the mic the moment the phone locks in a pocket. The three
         # bluetooth/processing modes are DAT's requirement, not ours — the glasses
         # link drops without them.
-        UIBackgroundModes: [audio, processing, bluetooth-central, bluetooth-peripheral]
+        # REQUIRED for streaming on a free team: `external-accessory` + the protocol below are
+        # what DAT's Bluetooth Classic link checks for (its strings: "UIBackgroundModes must
+        # contain 'external-accessory'", "UISupportedExternalAccessoryProtocols must contain
+        # 'com.meta.ar.wearable'"). Meta's own integration config lists both. Without them
+        # DAT reports "Neither .medium nor .low link levels are available" and the stream sits
+        # in `waitingForDevice` until it dies `deviceNotConnected` at 30s — exactly what
+        # happened on hardware on 2026-09-11, when this project lacked both keys.
+        UIBackgroundModes: [audio, processing, bluetooth-central, bluetooth-peripheral, external-accessory]
+        UISupportedExternalAccessoryProtocols: [com.meta.ar.wearable]
         NSMicrophoneUsageDescription: Sends dictation to your glasses.
         NSSpeechRecognitionUsageDescription: Turns what you say into prompts for your glasses.
         # Kept for MockDeviceKit, which can stand the phone camera in for the glasses

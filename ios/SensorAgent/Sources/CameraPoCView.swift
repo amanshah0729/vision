@@ -1,4 +1,5 @@
 #if os(iOS)
+import AVFoundation
 import MWDATCamera
 import SwiftUI
 
@@ -7,15 +8,20 @@ import SwiftUI
 /// on the mock it just proves the pipeline draws frames.
 struct CameraPoCView: View {
     @StateObject private var poc = CameraPoC()
+    /// Start streaming as soon as the screen appears (see `ContentView.autoPoC`).
+    var autoStart = false
 
     var body: some View {
         Form {
             Section {
                 ZStack {
                     Color.black
+                    // Hardware-decoded live feed (HEVC off real glasses). Sits under the
+                    // still, so a captured photo briefly replaces the feed when it lands.
+                    SampleBufferView(layer: poc.displayLayer)
                     if let frame = poc.frame {
                         Image(uiImage: frame).resizable().scaledToFit()
-                    } else {
+                    } else if poc.frameCount == 0 {
                         Text(poc.running ? "waiting for frames…" : "not streaming")
                             .foregroundStyle(.secondary)
                     }
@@ -67,7 +73,29 @@ struct CameraPoCView: View {
         }
         .navigationTitle("Camera PoC")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { if autoStart && !poc.running { poc.start() } }
         .onDisappear { poc.stop() }
+    }
+
+    /// Hosts an `AVSampleBufferDisplayLayer` in SwiftUI. Plain UIKit because SwiftUI has no
+    /// sample-buffer sink of its own.
+    private struct SampleBufferView: UIViewRepresentable {
+        let layer: AVSampleBufferDisplayLayer
+
+        func makeUIView(context: Context) -> UIView {
+            let view = UIView()
+            view.backgroundColor = .black
+            layer.videoGravity = .resizeAspect
+            view.layer.addSublayer(layer)
+            return view
+        }
+
+        func updateUIView(_ view: UIView, context: Context) {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.frame = view.bounds
+            CATransaction.commit()
+        }
     }
 
     private func name(_ res: StreamingResolution) -> String {

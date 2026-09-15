@@ -29,6 +29,11 @@ struct SensorAgentApp: App {
 /// that matters is the one on the glasses.
 struct ContentView: View {
     @StateObject private var agent = AgentController()
+    /// `-autoStartCameraPoC` on the command line pushes the Camera PoC and starts the stream
+    /// with no taps, so a hardware run can be driven from the Mac:
+    /// `xcrun devicectl device process launch --device <id> com.amanshah.glasses.SensorAgent -autoStartCameraPoC`
+    /// then pull `Documents/poc.log`. Exists because nobody is guaranteed to be holding the phone.
+    @State private var autoPoC = CommandLine.arguments.contains("-autoStartCameraPoC")
 
     var body: some View {
         NavigationStack {
@@ -91,6 +96,7 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Sensor Agent")
+            .navigationDestination(isPresented: $autoPoC) { CameraPoCView(autoStart: true) }
         }
     }
 }
