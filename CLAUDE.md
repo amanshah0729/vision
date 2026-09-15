@@ -136,14 +136,16 @@ glasses-camera DAT path produces a JPEG end to end against `MockDeviceKit`, via
 were emitted by Swift 6.3.3 in `-swift-version 6` mode; Xcode 15 cannot parse them at all
 and Xcode 16 is a gamble. Meta's docs still say "Xcode 14.0+" — that predates 0.9.0.
 
-Where Xcode has actually been installed:
-- A machine with Xcode 26.6 / iOS 26.5 SDK, 2026-09-10 — that is where the mock tests
-  ran. Not Aman's M1 Air.
-- **Aman's M1 MacBook Air (macOS 14.1.1, checked 2026-09-14) has no Xcode at all**, only
-  Command Line Tools. It can run macOS 26 but has not been upgraded. Building for a phone
-  from it means: upgrade macOS → install Xcode 26 → `xcodebuild -downloadPlatform iOS`
-  (App Store Xcode ships the macOS platform only; without the ~8GB iOS platform every build
-  fails "Supported platforms for the buildables in the current scheme is empty").
+Two Macs, and it matters which one you are on:
+- **Dev laptop — Aman's MacBook Pro** (`macbook-pro-42` on Tailscale). Xcode 26.6 / iOS 26.5
+  SDK, installed 2026-09-10; where the mock tests ran and where phone builds happen. Note
+  App Store Xcode ships the macOS platform only; the iOS platform is a separate ~8GB
+  `xcodebuild -downloadPlatform iOS`, without which every build fails "Supported platforms
+  for the buildables in the current scheme is empty."
+- **Home server — the M1 MacBook Air** (`amans-macbook-air`, macOS 14.1.1). Runs the
+  tunnel and both bridges 24/7. **No Xcode, only Command Line Tools**, and it does not need
+  any: nothing here builds iOS. An agent session on this box can still edit `project.yml`
+  and run `xcodegen`, but cannot compile the app. Do not try to install Xcode on it.
 
 `xcodegen` via Homebrew generates the `.xcodeproj`, `Info.plist` and `.entitlements`
 (`ios/SensorAgent/gen.sh`). All gitignored; `project.yml` is the source of truth.
