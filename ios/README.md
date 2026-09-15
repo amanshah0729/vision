@@ -30,11 +30,13 @@ same file drives the iOS app and the macOS harness in `tools/swift-sensor`.
 
 ```sh
 brew install xcodegen
-cd ios/SensorAgent && xcodegen generate
+cd ios/SensorAgent && ./gen.sh            # xcodegen + a gitignored Team.xcconfig
 xcodebuild -project SensorAgent.xcodeproj -scheme SensorAgent \
   -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' \
   CODE_SIGNING_ALLOWED=NO build
 ```
+
+Needs Xcode 26 (MWDAT 0.9.0's interfaces are Swift 6.3), so macOS 15.6 or later.
 
 `CODE_SIGNING_ALLOWED=NO` is fine for a **compile check**, but it cannot *run* capture: DAT's
 `Wearables.configure()` needs the keychain, so the app must be signed with the
@@ -47,8 +49,24 @@ CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
 Both `.xcodeproj`, `Info.plist` and `SensorAgent.entitlements` are generated and gitignored —
 **`project.yml` is the source of truth**. Editing them directly gets silently overwritten.
 
-Deployment target is iOS 17.2 because the MWDAT binaries are built against 17.2. Running on
-a real phone needs your own signing team; the bundle prefix is `com.amanshah.glasses`.
+Deployment target is iOS 17.2 because the MWDAT binaries are built against 17.2.
+
+## Running on a phone — needs the paid Apple Developer Program
+
+The camera stream rides Wi-Fi, not Bluetooth (see `../CLAUDE.md`). DAT joins the glasses'
+network with `NEHotspotConfiguration`, and the two entitlements that permits —
+`HotspotConfiguration` and `wifi-info`, both copied from Meta's own CameraAccess sample —
+are **paid-program-only**. A free personal team signs and installs the app fine and then
+never receives a frame. So:
+
+1. Enrol at developer.apple.com ($99/yr). Wait for approval (hours to a couple of days).
+2. Xcode → Settings → Accounts → add the Apple ID. Note the 10-character Team ID.
+3. `DEVELOPMENT_TEAM=<team id> ./gen.sh` — writes `Team.xcconfig` (gitignored). The same
+   value feeds `MWDAT.TeamID`, which DAT checks, so it has to be real.
+4. Open `SensorAgent.xcodeproj`, plug the phone in, pick it as the destination, Run. Xcode
+   registers the device and mints the profile with both Wi-Fi capabilities automatically
+   (`CODE_SIGN_STYLE = Automatic`).
+5. On the phone: Settings → General → VPN & Device Management → trust the developer.
 
 ## What the glasses camera needs from *you*
 
@@ -96,7 +114,8 @@ swiftc -O ios/SensorAgent/Sources/BridgeClient.swift tools/swift-sensor/main.swi
 
 ## Use
 
-1. Run the bridge: `./start.sh --tunnel` (in the `sightline` repo)
+1. Run the bridge: `./start.sh` in this repo (port 8791; the shared tunnel in
+   `../../tunnel/config.yml` publishes it as `vision.glasses.orthosoftwaresucks.com`)
 2. In the app, paste the bridge URL (`https://…`, no `?k=`) and the token from `.token`
 3. Start. The phone appears in `GET /api/sensors` within a second or two.
 4. Queue a command:

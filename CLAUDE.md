@@ -13,7 +13,8 @@ mixed content is blocked.
 | Piece | What it is |
 |---|---|
 | `PROTOCOL.md` | **The durable asset.** Wire contract between a native sensor client and a bridge. |
-| `sensors.js` | Bridge-side handler implementing `PROTOCOL.md`. Was mounted into Sightline. |
+| `server.js` | **The host.** Token gate + static `public/` + mounts `sensors.js`. `./start.sh`, port 8791. |
+| `sensors.js` | Bridge-side handler implementing `PROTOCOL.md`. Zero-dep; `server.js` mounts it. |
 | `ios/` | Native sensor client (Swift). Speaks `PROTOCOL.md`. See `ios/README.md`. |
 | `tools/swift-sensor/` | The real `BridgeClient` with capture faked — compiles and runs on macOS. |
 | `tools/fake-sensor.sh` | Impersonates the native client so the pipeline can be tested with no app. |
@@ -62,6 +63,29 @@ Worth knowing before touching that file:
 - `MWDAT.MetaAppID = "0"` is the documented Developer Mode value; it only needs a real
   application id for builds that leave this machine.
 
+## Wi-Fi is the camera link, and that needs the PAID Apple Developer Program
+
+Settled 2026-09-14 by reading `MWDATCore` and Meta's own sample. Do not re-litigate.
+
+- **Bluetooth is only the base link.** DAT brings BLE up for discovery/control, then
+  *upgrades to Wi-Fi* for the camera stream (`base connection ready, starting WiFi
+  upgrade`). Two transports: SoftAP — the phone joins the glasses' access point via
+  `NEHotspotConfiguration` — and Wi-Fi Aware on iOS 26. If the user denies Local Network,
+  Meta's docs say the app "will continue over Bluetooth LE, but without streaming" — and
+  photos need a live stream, so no Wi-Fi means no photos.
+- **`NEHotspotConfiguration` needs `com.apple.developer.networking.HotspotConfiguration`.**
+  Meta's `samples/CameraAccess/CameraAccess.entitlements` declares it plus
+  `com.apple.developer.networking.wifi-info`. Both are capabilities a **free personal team
+  cannot provision**. A free-team build compiles, installs, and never gets a frame. Hence:
+  the $99/yr Apple Developer Program is a hard requirement for real hardware, not a nicety.
+- `project.yml` now declares both entitlements plus every Info.plist key MWDATCore validates
+  at runtime (`NSBonjourServices` must include `_meta-datax._tcp`; `UIBackgroundModes` gets
+  `external-accessory`; `UISupportedExternalAccessoryProtocols: com.meta.ar.wearable`).
+  Meta's sample has fewer of these; the extras come from the binary's own
+  "missing requirements" strings and cost nothing.
+- Team ID is plumbed through the gitignored `Team.xcconfig` (`ios/SensorAgent/gen.sh`).
+  DAT reads the same value as `MWDAT.TeamID`, so it must be the real one.
+
 ## `configure()` at launch, and the keychain — both non-obvious, both found by running
 
 - **`Wearables.configure()` must run once at app launch** (`SensorAgentApp.init`, via
@@ -94,24 +118,35 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   Developer Mode on in the Meta AI app, then two in-app approvals on his phone. No part of
   that is scriptable. Do not claim to have access. This is the only thing between the mock and
   a real capture.
-- **There is no host process here.** `sensors.js` used to be mounted into Sightline's
-  `server.js`, which supplied the HTTP server, the token gate, and the lockout. Pulling it
-  out left the handler without a host. Nothing in this repo currently runs. Standing one up
-  means reimplementing auth — do not just expose `handleSensors` unauthenticated.
+- **The host exists now (`server.js`) but is not deployed.** Same token scheme as
+  Sightline, port 8791, hostname `vision.glasses.orthosoftwaresucks.com` in
+  `../tunnel/config.yml`, LaunchAgent in `../deploy/com.vision.bridge.plist`. Verified
+  2026-09-14 locally with `tools/fake-sensor.sh` and `tools/swift-sensor` (register →
+  `camera.still` → still lands → `mic.start` → transcripts land). Installing the LaunchAgent
+  and restarting the tunnel on the host is the remaining step.
 
-What *is* verified: the protocol layer end to end, via `tools/swift-sensor` against the
-running bridge; the whole iOS target builds; and the glasses-camera DAT path produces a JPEG
-end to end against `MockDeviceKit`, via `GlassesMockCaptureTests` on the simulator.
+What *is* verified: the protocol layer end to end, via `tools/swift-sensor` and
+`tools/fake-sensor.sh` against `server.js`; the whole iOS target builds; and the
+glasses-camera DAT path produces a JPEG end to end against `MockDeviceKit`, via
+`GlassesMockCaptureTests` on the simulator.
 
 ## Toolchain
 
-Xcode 26.6 with the iOS 26.5 SDK, installed 2026-09-10. Note that App Store Xcode ships
-**macOS platform only** — the iOS platform is a separate ~8GB download. Without it every
-build fails with "Supported platforms for the buildables in the current scheme is empty."
-Fix is `xcodebuild -downloadPlatform iOS`, not a reinstall.
+**Xcode 26 is required, which means macOS 15.6+.** MWDAT 0.9.0's `.swiftinterface` files
+were emitted by Swift 6.3.3 in `-swift-version 6` mode; Xcode 15 cannot parse them at all
+and Xcode 16 is a gamble. Meta's docs still say "Xcode 14.0+" — that predates 0.9.0.
 
-`xcodegen` via Homebrew generates both the `.xcodeproj` and `Info.plist`. Both are
-gitignored; `project.yml` is the source of truth.
+Where Xcode has actually been installed:
+- A machine with Xcode 26.6 / iOS 26.5 SDK, 2026-09-10 — that is where the mock tests
+  ran. Not Aman's M1 Air.
+- **Aman's M1 MacBook Air (macOS 14.1.1, checked 2026-09-14) has no Xcode at all**, only
+  Command Line Tools. It can run macOS 26 but has not been upgraded. Building for a phone
+  from it means: upgrade macOS → install Xcode 26 → `xcodebuild -downloadPlatform iOS`
+  (App Store Xcode ships the macOS platform only; without the ~8GB iOS platform every build
+  fails "Supported platforms for the buildables in the current scheme is empty").
+
+`xcodegen` via Homebrew generates the `.xcodeproj`, `Info.plist` and `.entitlements`
+(`ios/SensorAgent/gen.sh`). All gitignored; `project.yml` is the source of truth.
 
 ## Rules
 

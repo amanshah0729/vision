@@ -1,5 +1,5 @@
-# XcodeGen spec: `brew install xcodegen && xcodegen generate` produces the .xcodeproj,
-# which is gitignored on purpose — the spec is the source of truth, not the project file.
+# XcodeGen spec: `./gen.sh` (or `xcodegen generate`) produces the .xcodeproj, Info.plist
+# and .entitlements, all gitignored on purpose — the spec is the source of truth.
 name: SensorAgent
 options:
   bundleIdPrefix: com.amanshah.glasses
@@ -16,20 +16,44 @@ packages:
     url: https://github.com/facebook/meta-wearables-dat-ios
     exactVersion: 0.9.0
 
+# Signing. Team.xcconfig is gitignored and holds one line, DEVELOPMENT_TEAM = <10 chars>.
+# `./gen.sh` writes it from $DEVELOPMENT_TEAM or leaves it empty for simulator-only work.
+# The team ID is also what DAT reads as `MWDAT.TeamID` below, so it has to be the real one
+# from the Apple Developer account, not a placeholder.
+configFiles:
+  Debug: Team.xcconfig
+  Release: Team.xcconfig
+
 targets:
   SensorAgent:
     type: application
     platform: iOS
     sources: [Sources]
-    # DAT's `Wearables.configure()` stores state in the keychain; without a keychain access
-    # group the SecItem calls fail and configure() throws `internalError`, which traps
-    # `Wearables.shared`. The app must therefore be signed (ad-hoc is enough on the simulator)
-    # with this entitlement — `CODE_SIGNING_ALLOWED=NO` builds it but cannot run capture.
+    settings:
+      base:
+        CODE_SIGN_STYLE: Automatic
+        # Meta's sample sets the same. Without it Xcode picks a bundle id per team and
+        # the `sensoragent://` callback from Meta AI can land in the wrong app record.
+        PRODUCT_BUNDLE_IDENTIFIER: com.amanshah.glasses.SensorAgent
+    # Three entitlements, all copied from Meta's own CameraAccess sample
+    # (samples/CameraAccess/CameraAccess/CameraAccess.entitlements on the DAT repo):
+    #
+    # - keychain-access-groups: DAT's `Wearables.configure()` stores state in the keychain;
+    #   without a group the SecItem calls fail and configure() throws `internalError`, which
+    #   traps `Wearables.shared`. Ad-hoc signing is enough on the simulator.
+    # - HotspotConfiguration + wifi-info: Bluetooth is only the *base* link. DAT upgrades to
+    #   Wi-Fi for the camera stream ("base connection ready, starting WiFi upgrade"), joining
+    #   the glasses' access point via NEHotspotConfiguration. Both capabilities are
+    #   **paid Apple Developer Program only** — a free personal team cannot provision them,
+    #   so a free-team device build compiles, installs, and then never gets a frame.
+    #   That is the whole reason the program membership is required. Do not re-litigate.
     entitlements:
       path: SensorAgent.entitlements
       properties:
         keychain-access-groups:
           - $(AppIdentifierPrefix)$(CFBundleIdentifier)
+        com.apple.developer.networking.HotspotConfiguration: true
+        com.apple.developer.networking.wifi-info: true
     dependencies:
       - package: MWDAT
         product: MWDATCore
@@ -45,11 +69,16 @@ targets:
       properties:
         CFBundleDisplayName: Sensor Agent
         UILaunchScreen: {}
-        # Dictation has to keep running when the screen goes off, otherwise the
-        # glasses lose the mic the moment the phone locks in a pocket. The three
-        # bluetooth/processing modes are DAT's requirement, not ours — the glasses
-        # link drops without them.
-        UIBackgroundModes: [audio, processing, bluetooth-central, bluetooth-peripheral]
+        # Dictation has to keep running when the screen goes off, otherwise the glasses
+        # lose the mic the moment the phone locks in a pocket. The bluetooth/processing
+        # modes are DAT's requirement (they match Meta's sample). `external-accessory` is
+        # not in the sample but MWDATCore's own link-availability check names it
+        # ("UIBackgroundModes must contain 'external-accessory'") alongside
+        # UISupportedExternalAccessoryProtocols — both are needed for the ExternalAccessory
+        # (Bluetooth Classic) link that DAT falls back to when Wi-Fi is unavailable. Zero
+        # cost to declare, and DAT lists them among the "missing requirements" otherwise.
+        UIBackgroundModes: [audio, processing, bluetooth-central, bluetooth-peripheral, external-accessory]
+        UISupportedExternalAccessoryProtocols: [com.meta.ar.wearable]
         NSMicrophoneUsageDescription: Sends dictation to your glasses.
         NSSpeechRecognitionUsageDescription: Turns what you say into prompts for your glasses.
         # Kept for MockDeviceKit, which can stand the phone camera in for the glasses
@@ -57,8 +86,14 @@ targets:
         NSCameraUsageDescription: Stands the phone camera in for the glasses when mocking.
         NSBluetoothAlwaysUsageDescription: Connects to your Meta glasses.
         NSBluetoothPeripheralUsageDescription: Connects to your Meta glasses.
-        NSLocalNetworkUsageDescription: Lets your phone find your glasses over Wi-Fi.
-        NSBonjourServices: [_bonjour._tcp]
+        # Wi-Fi is how the camera stream actually arrives (see entitlements above). Local
+        # network permission is a runtime prompt on first stream; if the user denies it,
+        # DAT stays on Bluetooth LE with no streaming — i.e. no photos.
+        NSLocalNetworkUsageDescription: Lets your phone stream from your glasses over Wi-Fi.
+        # `_bonjour._tcp` is what Meta's docs and sample declare. `_meta-datax._tcp` is the
+        # service type MWDATCore actually carries in its binary; iOS 14+ refuses to browse a
+        # type not listed here, so both are declared.
+        NSBonjourServices: [_bonjour._tcp, _meta-datax._tcp]
         # Meta AI calls back into the app through this scheme once the user approves
         # registration. It must match MWDAT.AppLinkURLScheme below or the round trip
         # completes into a black hole.

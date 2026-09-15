@@ -14,3 +14,4 @@ ios/**/*.entitlements
 .build/
 tools/swift-sensor/bin/
 tools/capture/bin/
+ios/**/Team.xcconfig
