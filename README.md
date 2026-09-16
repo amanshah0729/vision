@@ -76,10 +76,8 @@ Both are one tap and happen on the phone. After that the run is hands-free: unfo
 glasses, keep the phone unlocked, and `device.sh run`.
 
 For the real thing: `./device.sh bridge https://your-bridge <token>` connects the agent to
-a bridge, and it stays connected with the phone locked. On a free Personal Team every
-device build that needs a new profile mints a new certificate (`PROVISION=1`), and a key
-minted by one build will prompt for the Mac login password on the next — if you don't have
-that password, just build with `PROVISION=1` each time and prune old certificates.
+a bridge, and it stays connected with the phone locked. Signing never asks for a password:
+`device.sh` keeps the key in a dedicated empty-password keychain (see `ios/README.md`).
 
 Things that bit us, so you can skip them:
 

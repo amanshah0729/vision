@@ -53,7 +53,7 @@ Deployment target is iOS 17.2 because the MWDAT binaries are built against 17.2.
 a real phone needs your own signing team. A free Personal Team is enough (see below).
 
 Device build from the CLI: copy `.device.env.example` to `.device.env` (gitignored), fill in
-your device UDID, team id and bundle id, then:
+your device UDID, team id and bundle id, then (`PROVISION=1` the first time on a machine):
 
 ```sh
 ./device.sh build     # xcodegen + signed device build
@@ -65,6 +65,12 @@ your device UDID, team id and bundle id, then:
 
 Each step is one `xcodebuild` / `xcrun devicectl` call; read the script if you would rather
 run them by hand.
+
+**No "codesign wants to access key" prompts.** `device.sh` keeps the signing key in a
+dedicated keychain with an empty password (`~/Library/Keychains/sensoragent-build.keychain-db`)
+and grants codesign access to it, so builds never ask for the Mac login password. A
+`PROVISION=1` build mints the certificate straight into that keychain. Xcode's own builds
+find it too, since the keychain is on the search list.
 
 ## Free team vs paid team
 
