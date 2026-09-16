@@ -113,6 +113,18 @@ Honest and incomplete:
   and a locked phone cannot be relaunched remotely — so the app reconnects by itself on
   any launch once a bridge is saved, and recovery is one tap on the icon.
 - `look.html` verified on the glasses browser: pinch → still on the display in ~5 s.
+- **Live frame stream** (`camera.stream.start`, 2026-09-15/16): the phone decodes the glasses'
+  HEVC in hardware and posts ~44 KB 480×854 JPEGs; the bridge keeps the newest at
+  `/api/sensors/frame.jpg`. Measured: 3.6 fps for 60 s with the app in the foreground, 3.2 fps
+  for 75 s with the phone **locked**, ~115–150 ms per upload, zero upload failures. Frames
+  are sharp enough to read a laptop screen layout. Two rough edges, both with fixes built
+  but **not yet verified on hardware**: the decoder dies when the app changes foreground
+  state (now rebuilt on `kVTInvalidSessionErr`), and one locked run decoded nothing at all
+  (now detected after 5 s and the camera stream restarted to force a keyframe).
+- Right after a fresh Meta AI registration the glasses ended three sessions within a minute
+  ("Session ended by device"); nothing since. Treat the first minute after approving as
+  unreliable. Registration itself dropped after some reinstalls and survived others —
+  budget one Meta AI tap per install.
 - Android is a protocol away. Nothing here is shared with iOS except `PROTOCOL.md`, on
   purpose.
 

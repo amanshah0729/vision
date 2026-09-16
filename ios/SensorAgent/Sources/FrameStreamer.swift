@@ -28,6 +28,12 @@ final class FrameStreamer {
     private let config: Config
     private let client: BridgeClient
     private let onExpire: @Sendable () -> Void
+    /// Called (once per stall) when frames keep arriving but none decode for ~5 s. The owner
+    /// restarts the DAT camera stream, which forces a fresh keyframe — the usual cure when a
+    /// decoder was (re)built mid-stream and only P-frames have arrived since.
+    var onStall: (@Sendable () -> Void)?
+    private var lastDecodedAtStats = 0, lastReceivedAtStats = 0, stallReports = 0
+    private var handlerErrors: [Int32: Int] = [:]
     private let queue = DispatchQueue(label: "frame-streamer")
     private let ci = CIContext(options: [.useSoftwareRenderer: false])
     private var decoder: VTDecompressionSession?
@@ -114,7 +120,16 @@ final class FrameStreamer {
         let status = VTDecompressionSessionDecodeFrame(decoder, sampleBuffer: buffer,
                                                        flags: [], infoFlagsOut: nil) {
             [weak self] status, _, image, _, _ in
-            guard let self, status == noErr, let image else { return }
+            guard let self else { return }
+            guard status == noErr, let image else {
+                self.queue.async {
+                    self.failed += 1
+                    let n = (self.handlerErrors[status] ?? 0) + 1
+                    self.handlerErrors[status] = n
+                    if n == 1 || n % 200 == 0 { PoCLog.write("STREAM: decode output error \(status) (x\(n))") }
+                }
+                return
+            }
             // Output callback runs on VT's thread; our state lives on `queue`.
             self.queue.async {
                 self.decoded += 1
@@ -123,6 +138,7 @@ final class FrameStreamer {
         }
         if status != noErr {
             failed += 1
+            if failed % 200 == 1 { PoCLog.write("STREAM: decode call error \(status)") }
             // iOS invalidates hardware decoders when the app changes foreground state (seen on
             // hardware: unlock + foreground for 2 s → every frame kVTInvalidSessionErr until
             // restart). Drop the session; the next frame rebuilds it from its format description.
@@ -165,6 +181,14 @@ final class FrameStreamer {
 
     private func logStats() {
         let secs = Int(Date().timeIntervalSince(started))
+        // Stall: frames arrived since the last tick but nothing decoded. Ask for a restart.
+        if !stopped, received > lastReceivedAtStats + 20, decoded == lastDecodedAtStats {
+            stallReports += 1
+            PoCLog.write("STREAM: stall #\(stallReports) — \(received - lastReceivedAtStats) frames in, 0 decoded; requesting camera restart")
+            onStall?()
+        }
+        lastReceivedAtStats = received
+        lastDecodedAtStats = decoded
         let avgKB = posted > 0 ? bytes / posted / 1024 : 0
         let avgMs = posted > 0 ? postMs / posted : 0
         PoCLog.write("STREAM: t=\(secs)s received=\(received) decoded=\(decoded) posted=\(posted) failed=\(failed) avg=\(avgKB)KB \(avgMs)ms/post inFlight=\(inFlight)")

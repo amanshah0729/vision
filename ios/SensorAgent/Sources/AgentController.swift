@@ -163,6 +163,18 @@ final class AgentController: ObservableObject {
                     Task { @MainActor in self?.stopStream(); self?.status = "online" }
                 }
                 streamer = s
+                // On a decode stall, tear the DAT stream down and bring it back: a new stream
+                // starts with a keyframe. Debounced by the streamer (one report per 5 s tick).
+                s.onStall = { [weak self, weak s] in
+                    Task { @MainActor in
+                        guard let self, let s, self.streamer === s else { return }
+                        PoCLog.write("AGENT: restarting camera stream after decode stall")
+                        self.camera.stopFrames()
+                        self.camera.stop()
+                        do { try await self.camera.startFrames { buffer in s.handle(buffer) } }
+                        catch { PoCLog.write("AGENT: restart FAILED \(error.localizedDescription)") }
+                    }
+                }
                 try await camera.startFrames { buffer in s.handle(buffer) }
             } catch {
                 PoCLog.write("AGENT: camera.stream.start FAILED \(error) — \(error.localizedDescription)")
