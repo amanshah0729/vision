@@ -1,56 +1,49 @@
-# Handoff — take over from the always-on Mac (written 2026-09-16 from the MacBook Pro)
+# Handoff — written 2026-09-16 on the Air, after the card counter landed
 
-Read `CLAUDE.md` and `README.md` first; they hold every verified fact and number. This file is
-only "where things stand and what to do next" for the agent that continues on the Air.
+Read `CLAUDE.md` and `README.md` first for the platform facts; `count/README.md` for the
+counter. This file is only "where things stand and what to do next".
 
 ## Where things stand
 
-Everything below is on `main`, pushed, and the matching build is installed on the phone.
+- **The card counter exists end to end and runs as a service on the Air.** Glasses stream →
+  `count/worker.py` (LaunchAgent `com.vision.count`) → `/api/count` on the bridge →
+  `public/count.html` on the glasses. Verified with a synthetic dealt table (six cards, each
+  counted exactly once, correct Hi-Lo), with those frames posted through the real bridge by a
+  fake phone, and with the real glasses stream in an office (≈3 fps, zero false counts after
+  two card-specific filters — see `count/README.md`).
+- **The decoder-recovery fixes in `FrameStreamer` from the Pro are still unverified** — they
+  did not get their 3-minute locked run. The stream was started and stopped ~8 times today
+  in short bursts without a stall; that is not the same test.
+- **`count.html` has not been opened on the glasses yet.** Served (200), inline script
+  syntax-checked, layout follows `look.html`. Someone has to add
+  `https://<bridge>/count.html?k=<token>` as a web app and tap Start.
+- One stream start today silently did nothing (`frame.seq` did not move for 30 s after
+  `camera.stream.start`); the next attempt 60 s later worked. Unexplained. If it recurs,
+  check `count.out.log` for `frameSeq` and just re-send the command.
 
-- **Camera → web app loop works on hardware**, locked phone included: pinch on `look.html`
-  → still on the glasses in ~5 s. Verified repeatedly.
-- **Live frame stream works**: `camera.stream.start` → `/api/sensors/frame.jpg` at ~3.5 fps,
-  480×854, ~44 KB. Verified foreground (60 s) and locked (75 s).
-- **Not yet verified**: the two decoder-recovery fixes in `FrameStreamer` (rebuild on
-  `kVTInvalidSessionErr`; restart the camera on a 5 s decode stall). They are in the build on
-  the phone. First thing to do: a 3-minute locked stream with one unlock/lock in the middle,
-  and read `STREAM:` lines in `poc.log`.
-- **iOS side is done for now.** No further Swift work is needed to build things on top; if
-  the decoder fixes turn out not to hold, that is the one remaining iOS task.
+## What to do next, in order
 
-## The Air cannot build iOS. It can do everything else
+1. **Real cards.** Everything about detector *accuracy* is unmeasured. Deal a deck in front
+   of the glasses: `grab.py` → `replay.py --track --out` → look at the annotated frames.
+   Expect under-counting (low-margin reads are refused by design), not wrong counting.
+2. **Learn templates from the real deck** (`mktemplates.py learn`, 13 ranks + 4 suits). The
+   shipped templates are drawn in a Hershey font; they are a bootstrap.
+3. Then tune `detect.py` thresholds against the same saved frames, or, if classical matching
+   tops out, put a trained detector behind the same `detect()` interface.
 
-- Bridge: `server.js` runs here as LaunchAgent `com.vision.bridge`, port 8791, public via the
-  shared tunnel. After `git pull`: `launchctl kickstart -k gui/$(id -u)/com.vision.bridge`.
-  Static files (`public/`) are served fresh without a restart.
-- Token: `cat .token` in this repo on the Air. Never commit it. Eight bad tokens from one IP
-  = ten-minute lockout for that IP (the whole house if the phone is on home Wi-Fi) — never
-  loop a request with an empty token.
-- Drive the phone: it auto-connects to the saved bridge on launch. If it drops off
-  `GET /api/sensors`, the app was killed; someone taps the icon. Commands: see `PROTOCOL.md`.
-- Phone logs: only from the Pro (`ios/SensorAgent/device.sh log`). From the Air, rely on the
-  bridge's view (`/api/sensors`, `frame.seq`, `still.at`).
+## Air vs Pro
 
-## Next project: card counting (all bridge-side)
+The Air runs the bridge and the worker and cannot build iOS. No iOS change was needed for
+the counter and none is planned. If `FrameStreamer` turns out not to hold on a long locked
+run, that is the one remaining iOS task and it lives on the Pro.
 
-Architecture agreed with Aman, no iOS changes:
+After `git pull` on the Air: `launchctl kickstart -k gui/$(id -u)/com.vision.bridge` and
+`launchctl kickstart -k gui/$(id -u)/com.vision.count`. Static files need no restart.
 
-1. `camera.stream.start {fps: 4, maxWidth: 640}` from a small glasses page.
-2. A worker on the Air polls `frame.seq` and runs a playing-card detector (YOLO-class, public
-   card datasets exist) on each new frame. Not OCR.
-3. Count each card **once**: track by position across frames, count on first stable
-   appearance, ignore while it persists. Keep running count, cards seen, decks remaining;
-   true count = running / decks left. Expose `GET /count` JSON.
-4. Glasses page polls `/count` twice a second and shows running + true count in big type;
-   pinch = reset at shuffle. 600×600, D-pad only, black is transparent — see `../CLAUDE.md`.
+## Quirks carried forward
 
-Expect the detector to be the real work; collect frames from the glasses at an actual table
-to tune. Aman knows the legal caveat (device-assisted counting in a casino is a crime in
-Nevada and most jurisdictions); this is a home/build project.
-
-## Quirks worth knowing before you burn an hour
-
-- `device.sh bridge <url> <token>` launch args did not override the saved bridge in one
-  test; the saved bridge is the public one, so it does not matter for the Air.
-- The stream's `maxSeconds` defaults to 600; the glasses' battery lasts a few streaming runs.
+- Eight bad tokens from one IP = ten-minute lockout for that IP. Never loop with an empty token.
+- `maxSeconds` on the stream defaults to 600; `count.html` asks for 1800. The glasses'
+  battery lasts a few streaming runs.
 - First minute after a Meta AI (re)approval: the glasses may end sessions on their own.
+- Phone logs only from the Pro (`ios/SensorAgent/device.sh log`).

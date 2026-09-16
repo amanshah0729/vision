@@ -20,6 +20,7 @@ mixed content is blocked.
 | `tools/swift-sensor/` | The real `BridgeClient` with capture faked — compiles and runs on macOS. |
 | `tools/fake-sensor.sh` | Impersonates the native client so the pipeline can be tested with no app. |
 | `public/look.html` | Standalone camera-stills web app. |
+| `count/` + `count.js` + `public/count.html` | Blackjack card counter on the live stream. Worker on the Air, routes on the bridge, true count on the glasses. See `count/README.md`. |
 | `public/probe.html` | Capability probe for the glasses browser. How the camera verdict was reached. |
 | `tools/capture/` | Mac/iPhone webcam stand-in. **Not the glasses.** See the warning below. |
 

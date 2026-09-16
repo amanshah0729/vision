@@ -20,3 +20,10 @@ tools/capture/bin/
 .device.env
 ios/SensorAgent/poc.log
 ios/SensorAgent/last-photo.jpg
+
+# Card counter (count/). The venv is per-machine; frames are private and large; templates
+# are drawn by cards.py on first run and replaced by tools/mktemplates.py from real frames.
+count/.venv/
+count/frames/
+count/templates/
+count/out/

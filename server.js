@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleSensors } from './sensors.js';
+import { handleCount } from './count.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 8791;
@@ -84,6 +85,7 @@ const server = http.createServer(async (req, res) => {
     failures.delete(ip);
     try {
       if (await handleSensors(req, res, url)) return;
+      if (await handleCount(req, res, url)) return;
     } catch (e) {
       console.error('[sensors] ' + (e && e.stack || e));
       if (!res.writableEnded) return json(res, 500, { error: 'sensor route failed' });

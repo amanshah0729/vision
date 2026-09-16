@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vision.count</string>
+
+  <!-- Card-count worker. Polls the bridge on localhost for frames and pushes the count
+       back; the glasses read it from /api/count. Separate agent from the bridge so a
+       detector crash restarts the worker, not the phone's connection.
+       Install: cp count/com.vision.count.plist ~/Library/LaunchAgents/ &&
+                launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vision.count.plist
+       Restart after git pull: launchctl kickstart -k gui/$(id -u)/com.vision.count -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/amanshah/Documents/glasses/vision/count/start.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/amanshah/Documents/glasses/vision/count</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/Users/amanshah/Documents/glasses/vision/count.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/amanshah/Documents/glasses/vision/count.err.log</string>
+</dict>
+</plist>

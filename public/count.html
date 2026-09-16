@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+<meta name="mrbd-web-app-capable" content="yes">
+<meta name="description" content="Blackjack true count from the glasses camera">
+<title>Count</title>
+<style>
+/* Standalone, like look.html: <bridge>/count.html?k=<token>. Shows the numbers the worker
+   on the Mac computes from the live stream. The glasses never see a frame here — there is
+   nothing to look at but the count, and the count is what has to be legible at a glance
+   through a waveguide, so it is the only large thing on the screen. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 600px; height: 600px; overflow: hidden;
+  background: #000; color: #eaf6ff;
+  font: 400 22px/1.3 -apple-system, "SF Pro Text", system-ui, sans-serif;
+}
+:root { --accent: #00d4ff; --dim: #7d93a3; --bad: #ff6b6b; --good: #6cff8a; --warn: #ffb347; }
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 18px 24px 16px; }
+.bar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+       padding-bottom: 10px; border-bottom: 2px solid #16323d; flex: 0 0 auto; }
+.title { font-size: 28px; font-weight: 600; }
+.meta { font-size: 19px; color: var(--dim); white-space: nowrap; }
+.meta.bad { color: var(--bad); }
+.meta.warn { color: var(--warn); }
+.big { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+/* The true count is the decision number, so it gets the pixels. Sign always shown: "+3"
+   and "−3" mean opposite things and a bare "3" would be an ambiguity at the table. */
+.label { font-size: 20px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+.tc { font-size: 176px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tc.pos { color: var(--good); }
+.tc.neg { color: var(--bad); }
+.row { display: flex; justify-content: space-around; gap: 8px; flex: 0 0 auto; padding: 6px 0 10px; }
+.stat { text-align: center; }
+.stat b { display: block; font-size: 40px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 17px; color: var(--dim); }
+.recent { flex: 0 0 auto; font-size: 22px; letter-spacing: .06em; color: var(--dim); text-align: center;
+          min-height: 30px; padding-bottom: 8px; white-space: nowrap; overflow: hidden; }
+.recent i { font-style: normal; color: #eaf6ff; }
+.chips { flex: 0 0 auto; display: flex; gap: 8px; }
+.chip { flex: 1 1 0; min-height: 88px; border: 2px solid #16323d; border-radius: 14px;
+        background: transparent; color: #eaf6ff; font: inherit; font-size: 20px; }
+.chip:focus { outline: none; border-color: var(--accent);
+              box-shadow: 0 0 0 3px rgba(0,212,255,.45); background: rgba(0,212,255,.10); }
+.note { position: absolute; left: 24px; right: 24px; top: 210px; text-align: center; font-size: 24px;
+        font-weight: 600; color: var(--accent); padding: 16px; }
+.note.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<section class="screen">
+  <header class="bar"><span class="title">Count</span><span id="meta" class="meta">…</span></header>
+  <div class="big">
+    <div class="label">true count</div>
+    <div id="tc" class="tc">–</div>
+  </div>
+  <div class="row">
+    <div class="stat"><b id="rc">0</b><span>running</span></div>
+    <div class="stat"><b id="seen">0</b><span>cards</span></div>
+    <div class="stat"><b id="left">6.0</b><span>decks left</span></div>
+  </div>
+  <div id="recent" class="recent"></div>
+  <div class="chips">
+    <button class="chip focusable" id="btn-live">Start</button>
+    <button class="chip focusable" id="btn-reset">Shuffle</button>
+    <button class="chip focusable" id="btn-dn">Decks −</button>
+    <button class="chip focusable" id="btn-up">Decks +</button>
+  </div>
+  <div id="note" class="note" hidden></div>
+</section>
+<script>
+const TOKEN = (() => {
+  const k = new URL(location.href).searchParams.get('k');
+  if (k) { try { localStorage.setItem('look_token', k); } catch {} return k; }
+  try { return localStorage.getItem('look_token') || ''; } catch { return ''; }
+})();
+const $ = (id) => document.getElementById(id);
+const SUIT = { spades: '♠', hearts: '♥', diamonds: '♦', clubs: '♣' };
+// Long enough for a shoe; the phone stops the camera on its own at maxSeconds so a page
+// left open after the wearer walks away does not flatten the glasses' battery.
+const STREAM = { fps: 4, maxWidth: 640, maxSeconds: 1800 };
+
+async function api(path, opts = {}) {
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(path + sep + 'k=' + encodeURIComponent(TOKEN), {
+    headers: { 'Content-Type': 'application/json' }, ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!res.ok) { const e = new Error(res.status); e.status = res.status; throw e; }
+  return res.json();
+}
+let noteTimer = null;
+function note(msg, bad, ms) {
+  const n = $('note'); n.textContent = msg; n.className = 'note' + (bad ? ' bad' : ''); n.hidden = !msg;
+  clearTimeout(noteTimer);
+  if (msg && ms) noteTimer = setTimeout(() => { n.hidden = true; }, ms);
+}
+function signed(v, digits) {
+  const s = digits === undefined ? String(Math.abs(v)) : Math.abs(v).toFixed(digits);
+  return (v > 0 ? '+' : v < 0 ? '−' : '') + s;   // real minus sign; a hyphen is too thin on the waveguide
+}
+
+let live = false, lastSeqSeen = 0, lastSeqAt = 0;
+function render(d) {
+  const st = d.state, w = d.worker || {};
+  const meta = $('meta');
+  if (!w.alive) {
+    meta.textContent = 'worker down'; meta.className = 'meta bad';
+  } else if (!st || !st.frameSeq) {
+    meta.textContent = live ? 'waiting for frames' : 'idle'; meta.className = 'meta warn';
+  } else {
+    if (st.frameSeq !== lastSeqSeen) { lastSeqSeen = st.frameSeq; lastSeqAt = Date.now(); }
+    const stale = Date.now() - lastSeqAt > 4000;
+    // A stopped stream with a live worker is the case the wearer can fix (folded glasses,
+    // maxSeconds hit), so it is named rather than left as a frozen number.
+    meta.textContent = stale ? 'stream stalled' : (st.fps + ' fps · ' + (st.pending ? st.pending + ' pending' : 'tracking'));
+    meta.className = 'meta' + (stale ? ' warn' : '');
+  }
+  if (!st) return;
+  const tc = $('tc');
+  tc.textContent = signed(st.trueCount, 1);
+  tc.className = 'tc' + (st.trueCount > 0.05 ? ' pos' : st.trueCount < -0.05 ? ' neg' : '');
+  $('rc').textContent = signed(st.running);
+  $('seen').textContent = st.seen;
+  $('left').textContent = st.decksLeft.toFixed(1);
+  $('btn-dn').textContent = 'Decks − (' + (d.control ? d.control.decks : st.decks) + ')';
+  $('recent').innerHTML = (st.recent || []).slice(-8).map((c) =>
+    '<i>' + c.rank + (c.suit ? SUIT[c.suit] || '' : '') + '</i>').join('  ') || '&nbsp;';
+}
+async function poll() {
+  try { render(await api('/api/count')); }
+  catch (e) { $('meta').textContent = e.status === 401 ? 'token rejected' : 'bridge?'; $('meta').className = 'meta bad'; }
+}
+setInterval(poll, 500);
+
+async function camera(action) {
+  const d = await api('/api/sensors');
+  const cam = (d.devices || []).find((x) => (x.caps || []).includes('camera'));
+  if (!cam) throw new Error('no camera client online — open Sensor Agent on the phone');
+  if (!(cam.caps || []).includes('glasses-camera')) note('STAND-IN camera, not the glasses', true, 4000);
+  await api('/api/sensors/command', { method: 'POST',
+    body: { action, deviceId: cam.deviceId, args: action === 'camera.stream.start' ? STREAM : {} } });
+}
+async function toggleLive() {
+  try {
+    if (live) { await camera('camera.stream.stop'); live = false; $('btn-live').textContent = 'Start'; note('', false); }
+    else { await camera('camera.stream.start'); live = true; $('btn-live').textContent = 'Stop'; note('Starting stream…', false, 5000); }
+  } catch (e) { note(e.status === 401 ? 'Token rejected — reopen with ?k=…' : String(e.message), true, 5000); }
+}
+async function shuffle() {
+  try { await api('/api/count/reset', { method: 'POST' }); note('Count reset', false, 1500); }
+  catch (e) { note('Reset failed', true, 3000); }
+}
+async function decks(delta) {
+  try {
+    const d = await api('/api/count');
+    const n = Math.max(1, Math.min(8, (d.control ? d.control.decks : 6) + delta));
+    await api('/api/count/decks', { method: 'POST', body: { decks: n } });
+    note(n + ' decks', false, 1200);
+  } catch (e) { note('Decks failed', true, 3000); }
+}
+
+const CHIPS = ['btn-live', 'btn-reset', 'btn-dn', 'btn-up'];
+const ACT = { 'btn-live': toggleLive, 'btn-reset': shuffle, 'btn-dn': () => decks(-1), 'btn-up': () => decks(+1) };
+function moveFocus(delta) {
+  const i = CHIPS.indexOf(document.activeElement && document.activeElement.id);
+  $(CHIPS[(i < 0 ? 0 : i + delta + CHIPS.length) % CHIPS.length]).focus();
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); const f = ACT[document.activeElement && document.activeElement.id]; if (f) f(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); moveFocus(-1); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); moveFocus(1); }
+});
+for (const id of CHIPS) $(id).addEventListener('click', ACT[id]);
+$('btn-live').focus();
+if (!TOKEN) note('Missing token — open this with ?k=…', true);
+else poll();
+</script>
+</body>
+</html>
