@@ -121,7 +121,20 @@ final class FrameStreamer {
                 if due && !self.inFlight { self.post(image) }
             }
         }
-        if status != noErr { failed += 1 }
+        if status != noErr {
+            failed += 1
+            // iOS invalidates hardware decoders when the app changes foreground state (seen on
+            // hardware: unlock + foreground for 2 s → every frame kVTInvalidSessionErr until
+            // restart). Drop the session; the next frame rebuilds it from its format description.
+            if status == kVTInvalidSessionErr || failed % 50 == 1 {
+                PoCLog.write("STREAM: decode failed \(status) — rebuilding decoder")
+            }
+            if status == kVTInvalidSessionErr {
+                VTDecompressionSessionInvalidate(decoder)
+                self.decoder = nil
+                decoderFormat = nil
+            }
+        }
     }
 
     private func post(_ image: CVImageBuffer) {
