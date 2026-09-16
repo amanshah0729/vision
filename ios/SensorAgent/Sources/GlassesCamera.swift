@@ -98,12 +98,18 @@ final class GlassesCamera {
     }
 
     private static func awaitRegistration(_ wearables: any WearablesInterface) async throws {
+        // Meta AI can bounce a registration straight back to `.available` (seen on hardware:
+        // `.registering` for ~2 s, then `.available`, no sheet shown). Treating that as "keep
+        // waiting" parked the agent forever — and, before commands ran off the poll loop, it
+        // stopped polling too. A bounce is a failure; the caller retries with the glasses on.
+        var sawRegistering = false
         for await state in wearables.registrationStateStream() {
             PoCLog.write("PoCDIAG: registration stream -> \(state)")
             switch state {
             case .registered: return
             case .unavailable: throw Failure.notRegistered
-            case .available, .registering: continue
+            case .registering: sawRegistering = true
+            case .available: if sawRegistering { throw Failure.notRegistered }
             @unknown default: continue
             }
         }
