@@ -145,6 +145,13 @@ Split out of `sightline` on 2026-09-09. Honestly incomplete, in priority order:
   streams `.hvc1` so stills and frames share one session. Auto-stops after `maxSeconds`
   (default 600) — streaming keeps the glasses' camera on and their battery dies in a few
   runs. The mock tests pass with `.hvc1`; see README "Status" for what was measured live.
+- **A camera session blacks out the glasses browser; draw with DAT Display instead**
+  (2026-09-17). `GlassesCamera.show(_:)` adds a `Display` to the *same* `DeviceSession` as the
+  camera and sends a `FlexBox` of `Text`. Works under Developer Mode with no Developer Center
+  app. Every fresh stream start rebuilds the session, so the last content is re-sent. Do not
+  import SwiftUI in a file that uses `MWDATDisplay` — `Text`/`Button`/`Image` collide.
+  `-autoDisplayTest` on the command line runs display-alone then display+camera with no
+  bridge support needed.
 - **There is a mic PoC** (`MicPoC` + `MicPoCView`). The glasses' mic is plain Bluetooth
   HFP, not DAT, so `Dictation.preferBluetoothHFP` routes speech capture to it via
   `AVAudioSession`. Needs no entitlements and no paid account. Unverified on hardware.

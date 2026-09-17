@@ -82,6 +82,49 @@ final class AgentController: ObservableObject {
         status = "online"
         // Hold the process alive in the background/locked so the long-poll keeps running.
         keepalive.start()
+        // `-autoDisplayTest`: prove camera + display together with no bridge support needed —
+        // start a stream, then redraw the display every 2 s with the live frame count.
+        if CommandLine.arguments.contains("-autoDisplayTest") {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                PoCLog.write("DISPLAYTEST: begin")
+                do {
+                    try await GlassesCamera.ensureAccess()
+                    // Phase 1 — display ALONE. Separates "Meta won't let this app draw" from
+                    // "display and camera interfere": the first hardware run had both up and
+                    // the send timed out while the video stopped decoding.
+                    let t0 = Date()
+                    do {
+                        try await self.camera.show(.init(title: "VISION", big: "DISPLAY ONLY",
+                                                         lines: ["no camera yet"]))
+                        PoCLog.write(String(format: "DISPLAYTEST: phase 1 (display only) OK in %.1fs", Date().timeIntervalSince(t0)))
+                    } catch {
+                        PoCLog.write(String(format: "DISPLAYTEST: phase 1 (display only) FAILED after %.1fs: \(error) — \(error.localizedDescription)", Date().timeIntervalSince(t0)))
+                        throw error
+                    }
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
+                    // Phase 2 — add the camera to the SAME session (not a fresh one, so the
+                    // display survives) and keep redrawing.
+                    let s = FrameStreamer(config: .init(fps: 4, maxWidth: 504, quality: 0.6, maxSeconds: 50),
+                                          client: client) { }
+                    self.streamer = s
+                    try await self.camera.startFrames(fresh: false) { buffer in s.handle(buffer) }
+                    PoCLog.write("DISPLAYTEST: phase 2 camera started alongside display")
+                    for tick in 1...12 {
+                        let t = Date()
+                        try await self.camera.show(.init(title: "VISION DISPLAY TEST", big: "+\(tick)",
+                                                         lines: ["camera streaming", "tick \(tick) of 12"]))
+                        PoCLog.write(String(format: "DISPLAYTEST: tick \(tick) sent in %.2fs", Date().timeIntervalSince(t)))
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    }
+                    PoCLog.write("DISPLAYTEST: done")
+                } catch {
+                    PoCLog.write("DISPLAYTEST: FAILED \(error) — \(error.localizedDescription)")
+                }
+                self.stopStream()
+            }
+        }
     }
 
     func stop() {
@@ -188,6 +231,20 @@ final class AgentController: ObservableObject {
                 stopStream()
                 await set(status: error.localizedDescription)
             }
+        case "display.show":
+            let content = GlassesCamera.DisplayContent(title: command.string("title"),
+                                                       big: command.string("big"),
+                                                       lines: command.strings("lines"))
+            do {
+                try await GlassesCamera.ensureAccess()
+                try await camera.show(content)
+                PoCLog.write("DISPLAY: shown \(content)")
+            } catch {
+                PoCLog.write("DISPLAY: show FAILED \(error) — \(error.localizedDescription)")
+            }
+        case "display.clear":
+            await camera.clearDisplay()
+            PoCLog.write("DISPLAY: cleared")
         case "camera.stream.stop":
             PoCLog.write("AGENT: camera.stream.stop")
             stopStream()

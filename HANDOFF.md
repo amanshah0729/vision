@@ -52,6 +52,18 @@ glasses ended the session and the phone is restarting it. The stalls seen on 202
 (2 runs of 5) were the old build. **Pull and restart the bridge** to pick up the stale-poller
 fix in `sensors.js`, or a command sent right after the app relaunches can be lost.
 
+## Showing things while the camera runs: `display.show`, not a web page
+
+While a DAT camera session is active the glasses browser is **black** (camera light only);
+it returns when the stream stops. So a glasses page cannot show the count during a stream.
+Instead POST `{"action":"display.show","args":{"title":"HI-LO","big":"+3","lines":["true +1.5","2.0 decks left"]}}`
+to `/api/sensors/command`; the phone draws it with DAT's Display capability in the camera's
+session. Updates cost 40–100 ms. `display.clear` blanks it. Verified on hardware 2026-09-17
+(display + camera together). The web page is still the launcher: open it, pinch Start, it
+sends `camera.stream.start`, the browser goes dark and the phone-drawn display takes over.
+Requires the bridge to be on the current `sensors.js` (the old one rejects unknown actions).
+Known issue: video decode degrades while the display is active — being worked on the Pro.
+
 ## Quirks worth knowing before you burn an hour
 
 - **Free-team provisioning profiles expire after 7 days.** The app then refuses to launch

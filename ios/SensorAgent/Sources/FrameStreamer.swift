@@ -44,6 +44,8 @@ final class FrameStreamer {
     private var errorAt: Date?
     private var keyframes = 0, skipped = 0
     private var detectionOff = false
+    /// Frame index until which decode errors do not count as a new loss (see the RASL note).
+    private var graceUntil = 0
     private var lastKeyframeAt: Date?
     private let queue = DispatchQueue(label: "frame-streamer")
     private let ci = CIContext(options: [.useSoftwareRenderer: false])
@@ -104,30 +106,32 @@ final class FrameStreamer {
     /// buffer looked like a sync sample, so attachment-based detection skipped nothing and one
     /// damaged frame still poisoned hundreds. Samples are length-prefixed NAL units (hvcC);
     /// parameter sets and SEI may precede the slice, so walk until the first slice NAL.
-    private static func isKeyframe(_ buffer: CMSampleBuffer) -> Bool {
+    /// NAL type of the sample's first slice (parameter sets and SEI skipped), or nil if it
+    /// cannot be read. 16…23 are random-access pictures (19/20 IDR, 21 CRA); 8/9 are RASL —
+    /// "leading" pictures that follow a CRA in decode order but reference frames *before* it.
+    private static func sliceType(_ buffer: CMSampleBuffer) -> UInt8? {
         guard let desc = CMSampleBufferGetFormatDescription(buffer),
-              let block = CMSampleBufferGetDataBuffer(buffer) else { return true }
+              let block = CMSampleBufferGetDataBuffer(buffer) else { return nil }
         var lengthSize: Int32 = 4
         CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(desc, parameterSetIndex: 0,
             parameterSetPointerOut: nil, parameterSetSizeOut: nil,
             parameterSetCountOut: nil, nalUnitHeaderLengthOut: &lengthSize)
         let n = Int(lengthSize)
-        guard n >= 1, n <= 4 else { return true }
+        guard n >= 1, n <= 4 else { return nil }
         let total = CMBlockBufferGetDataLength(block)
         var header = [UInt8](repeating: 0, count: n + 1)
         var offset = 0
         while offset + n + 1 <= total {
             guard CMBlockBufferCopyDataBytes(block, atOffset: offset, dataLength: n + 1,
-                                             destination: &header) == kCMBlockBufferNoErr else { return true }
+                                             destination: &header) == kCMBlockBufferNoErr else { return nil }
             var length = 0
             for i in 0..<n { length = (length << 8) | Int(header[i]) }
             let type = (header[n] >> 1) & 0x3F
-            if (16...23).contains(type) { return true }     // IRAP slice
-            if type <= 9 { return false }                   // ordinary (dependent) slice
-            guard length > 0 else { return true }
+            if type <= 31 { return type }                   // a slice (VCL) NAL
+            guard length > 0 else { return nil }
             offset += n + length                            // VPS/SPS/PPS/SEI — keep walking
         }
-        return true
+        return nil
     }
 
     private func decode(_ buffer: CMSampleBuffer) {
@@ -139,18 +143,29 @@ final class FrameStreamer {
             detectionOff = true
             PoCLog.write("STREAM: no keyframe recognised in \(received) frames — detection off")
         }
-        if detectionOff || Self.isKeyframe(buffer) {
+        let type = Self.sliceType(buffer)
+        let isKey = detectionOff || type == nil || (16...23).contains(type!)
+        // Right after resyncing on a CRA keyframe, its RASL leading pictures (8/9) cannot be
+        // decoded — their references predate the keyframe. Feeding them made every resync
+        // fail again one frame later, so the stream never recovered (hardware, 2026-09-17:
+        // one failure per 3 s keyframe interval, 49 of 364 frames decoded). Drop them.
+        if !isKey, received <= graceUntil, let type, type == 8 || type == 9 {
+            skipped += 1
+            return
+        }
+        if isKey {
             keyframes += 1
             let gap = lastKeyframeAt.map { Date().timeIntervalSince($0) }
             lastKeyframeAt = Date()
             if keyframes <= 6 || keyframes % 50 == 0 {
-                PoCLog.write("STREAM: keyframe #\(keyframes) at frame \(received)"
+                PoCLog.write("STREAM: keyframe #\(keyframes) NAL=\(type.map(String.init) ?? "?") at frame \(received)"
                              + (gap.map { String(format: " (%.1fs since last)", $0) } ?? ""))
             }
             if needKeyframe, let errorAt {
                 PoCLog.write(String(format: "STREAM: resynced on keyframe %.1fs after the error, %d frames skipped",
                                     Date().timeIntervalSince(errorAt), skipped))
             }
+            if needKeyframe { graceUntil = received + 12 }
             needKeyframe = false
             errorAt = nil
         } else if needKeyframe {
@@ -199,7 +214,9 @@ final class FrameStreamer {
             guard status == noErr, let image else {
                 self.queue.async {
                     self.failed += 1
-                    if !self.needKeyframe { self.needKeyframe = true; self.errorAt = Date(); self.skipped = 0 }
+                    if !self.needKeyframe, self.received > self.graceUntil {
+                        self.needKeyframe = true; self.errorAt = Date(); self.skipped = 0
+                    }
                     let n = (self.handlerErrors[status] ?? 0) + 1
                     self.handlerErrors[status] = n
                     if n == 1 || n % 200 == 0 { PoCLog.write("STREAM: decode output error \(status) (x\(n))") }
@@ -214,7 +231,7 @@ final class FrameStreamer {
         }
         if status != noErr {
             failed += 1
-            if !needKeyframe { needKeyframe = true; errorAt = Date(); skipped = 0 }
+            if !needKeyframe, received > graceUntil { needKeyframe = true; errorAt = Date(); skipped = 0 }
             if failed % 200 == 1 { PoCLog.write("STREAM: decode call error \(status)") }
             // iOS invalidates hardware decoders when the app changes foreground state (seen on
             // hardware: unlock + foreground for 2 s → every frame kVTInvalidSessionErr until

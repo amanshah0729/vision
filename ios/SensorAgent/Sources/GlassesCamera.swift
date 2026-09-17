@@ -3,6 +3,7 @@ import CoreMedia
 import Foundation
 import MWDATCamera
 import MWDATCore
+import MWDATDisplay
 
 /// One JPEG **from the glasses** on demand, for `camera.still`.
 ///
@@ -251,6 +252,53 @@ final class GlassesCamera {
         return session
     }
 
+    // MARK: - Display
+
+    /// What to draw on the glasses. Plain data so the bridge command maps onto it directly.
+    struct DisplayContent: Sendable, Equatable {
+        var title: String?
+        var big: String?
+        var lines: [String] = []
+    }
+
+    private var display: Display?
+    private var lastContent: DisplayContent?
+
+    /// Draw on the glasses' display from the phone, in the **same** DeviceSession as the
+    /// camera. This exists because a DAT camera session takes the display from the glasses
+    /// browser — the web app is black for as long as the camera runs — so a page cannot show
+    /// anything during a stream. Content is remembered and re-sent when the session is rebuilt
+    /// (every fresh stream start tears it down).
+    func show(_ content: DisplayContent) async throws {
+        lastContent = content
+        let session = try await startedSession()
+        if display == nil || display?.state == .stopped {
+            let d = try session.addDisplay()
+            display = d
+            tokens.append(d.statePublisher.listen { state in
+                PoCLog.write("DISPLAY: state = \(state)")
+            })
+            d.start()
+            let deadline = Date().addingTimeInterval(10)
+            while d.state != .started && Date() < deadline {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            PoCLog.write("DISPLAY: after start, state = \(d.state)")
+        }
+        guard let display else { return }
+        try await display.send(FlexBox(direction: .column, spacing: 8, alignment: .center,
+                                       crossAlignment: .center, padding: EdgeInsets(all: 16)) {
+            if let title = content.title, !title.isEmpty { Text(title, style: .meta, color: .secondary) }
+            if let big = content.big, !big.isEmpty { Text(big, style: .heading) }
+            for line in content.lines { Text(line, style: .body) }
+        })
+    }
+
+    func clearDisplay() async {
+        lastContent = nil
+        try? await display?.clearDisplay()
+    }
+
     // MARK: - Live frames
 
     private var frameToken: (any AnyListenerToken)?
@@ -276,6 +324,11 @@ final class GlassesCamera {
             return
         }
         _ = try await liveStream()
+        // The session was rebuilt, so the display went with it — put the content back.
+        if let lastContent {
+            do { try await show(lastContent) }
+            catch { PoCLog.write("DISPLAY: re-show after stream start FAILED \(error) — \(error.localizedDescription)") }
+        }
     }
 
     /// `stop()`, then wait until DAT reports the session fully `.stopped` (≤5 s).
@@ -300,8 +353,10 @@ final class GlassesCamera {
         self.tokens = []
         Task { for token in tokens { await token.cancel() } }
         camera?.stop()
+        display?.stop()
         session?.stop()
         camera = nil
+        display = nil
         session = nil
     }
 

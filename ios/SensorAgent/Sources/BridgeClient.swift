@@ -22,17 +22,30 @@ public struct BridgeCommand: Decodable, Sendable {
         if case let .string(s)? = args?[key] { return s }
         return nil
     }
+
+    /// An array of strings; numbers are rendered, anything else dropped.
+    public func strings(_ key: String) -> [String] {
+        guard case let .array(items)? = args?[key] else { return [] }
+        return items.compactMap {
+            switch $0 {
+            case let .string(s): return s
+            case let .number(n): return n == n.rounded() ? String(Int(n)) : String(n)
+            default: return nil
+            }
+        }
+    }
 }
 
-public enum JSONValue: Decodable, Sendable {
-    case number(Double), string(String), bool(Bool), null
+public indirect enum JSONValue: Decodable, Sendable {
+    case number(Double), string(String), bool(Bool), array([JSONValue]), null
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let b = try? c.decode(Bool.self) { self = .bool(b) }
         else if let n = try? c.decode(Double.self) { self = .number(n) }
         else if let s = try? c.decode(String.self) { self = .string(s) }
-        else { self = .null } // arrays/objects: unused by any action today
+        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
+        else { self = .null } // objects: unused by any action today
     }
 }
 

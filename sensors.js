@@ -278,7 +278,8 @@ export async function handleSensors(req, res, url) {
 
   if (p === '/api/sensors/command' && m === 'POST') {
     const b = await readJson(req);
-    const ACTIONS = ['mic.start', 'mic.stop', 'camera.still', 'camera.stream.start', 'camera.stream.stop'];
+    const ACTIONS = ['mic.start', 'mic.stop', 'camera.still', 'camera.stream.start', 'camera.stream.stop',
+      'display.show', 'display.clear'];
     if (!ACTIONS.includes(b.action)) {
       json(res, 400, { error: 'unknown action' });
       return true;

@@ -61,6 +61,12 @@ targets:
         product: MWDATCore
       - package: MWDAT
         product: MWDATCamera
+      # Draws on the glasses' display from the phone, inside the same DeviceSession as the
+      # camera. A DAT camera session takes the display away from the glasses browser (the web
+      # app goes black for as long as the camera runs), so anything the wearer should see
+      # *while* streaming has to be rendered through this, not a web page.
+      - package: MWDAT
+        product: MWDATDisplay
       # MockDevice ships in the shipping binary on purpose: it is the only way to
       # exercise the glasses code path without glasses, and DAT gates it behind an
       # explicit enable() call so it stays inert unless asked for.

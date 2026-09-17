@@ -110,6 +110,8 @@ idempotent and user-retriable rather than guaranteed.
 | `camera.still` | `{}` | capture one JPEG and POST it |
 | `camera.stream.start` | `{ fps?, maxWidth?, quality?, maxSeconds?, resolution? }` | post JPEG frames to `/api/sensors/frame` at ≤`fps` (default 3, max 10), scaled *down* to `maxWidth` px (default 480), JPEG `quality` (default 0.6), for at most `maxSeconds` (default 600). `resolution` picks the source off the glasses: `"low"`, `"medium"` (504×896, default) or `"high"` (720×1280). `maxWidth` above the source width does nothing — frames are never upscaled. Every start brings up a fresh camera stream (~3 s) so the decoder begins on a keyframe |
 | `camera.stream.stop` | `{}` | stop posting frames |
+| `display.show` | `{ title?, big?, lines? }` | draw on the glasses' display **from the phone**, in the camera's own session: `title` (small), `big` (headline), `lines` (array of strings). Replaces whatever was shown. This is the only way to show anything while the camera runs — a DAT camera session takes the display from the glasses browser, so a web page is black for the duration |
+| `display.clear` | `{}` | blank the phone-drawn display |
 
 ## Glasses (web app) → bridge
 

@@ -46,6 +46,7 @@ Full notes, including what was learned from `strings` on the DAT binaries, are i
 | `PROTOCOL.md` | Wire contract between a native sensor client and a bridge: registration, capabilities, command queue, results. Language-neutral. |
 | `server.js` | The bridge host: token gate with lockout, static `public/`, mounts `sensors.js`. Zero dependencies, Node ≥ 18. `./start.sh`. |
 | `sensors.js` | Bridge-side handler implementing the protocol. |
+| `display.show` | Bridge command: the phone draws `{title, big, lines}` on the glasses' display inside the camera session — the only thing visible while the camera runs. |
 | `public/` | `probe.html` (the capability probe that produced the "no camera" verdict) and `look.html` (a stills viewer). |
 | `tools/` | A macOS harness for the bridge client, a bash impersonator, and a Mac webcam CLI that is explicitly *not* the glasses. |
 
@@ -127,6 +128,16 @@ Honest and incomplete:
   at most 3 s — and only tears the stream down if no keyframe follows. The resync path has
   not been seen firing on hardware yet, because no error occurred in the verified runs.
   Still unverified: recovery after the app changes foreground state mid-stream.
+- **Display while the camera runs** (`display.show`, 2026-09-17). A DAT camera session takes
+  the display away from the glasses *browser*: a web app goes black, camera light on, for as
+  long as the camera is active, and comes back when it stops (seen on every capture and
+  stream). The only way to show anything meanwhile is DAT's own Display capability, drawn
+  from the phone in the same `DeviceSession`. That works under plain Developer Mode
+  (`MetaAppID "0"`, no Developer Center app): display alone up in 0.9 s, then the camera
+  joined the same session and 12 updates went through at 40–100 ms each while it streamed —
+  confirmed in `poc.log` and by the wearer reading the counter. **Open problem:** with the
+  display active the video decoded badly (49 of 364 frames); suspected cause is resyncing on
+  CRA keyframes and then failing on their leading pictures. A fix is written, not verified.
 - Right after a fresh Meta AI registration the glasses ended three sessions within a minute
   ("Session ended by device"); nothing since. Treat the first minute after approving as
   unreliable. Registration drops when the installed build's **signing certificate changes**
