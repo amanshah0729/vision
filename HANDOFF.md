@@ -41,6 +41,17 @@ nothing in vision was changed for it. Keep it that way: vision is the open-sourc
 sensor bridge and stays generic. If the counter needs something the bridge does not
 expose, add it here as a generic feature, not as a counting feature.
 
+## Streaming: what to ask for (verified 2026-09-17)
+
+`camera.stream.start` with `{"fps": 8, "resolution": "high", "maxWidth": 720}` gives 720×1280
+frames at ~5.5 fps on the bridge, ~89 KB each. `maxWidth` above the source width does
+nothing (medium is 504 wide — 640/960 were upscales of nothing). Each start takes ~3 s to
+bring up a fresh camera stream. The source sends a keyframe every 3 s, so after a damaged
+frame expect a gap of up to 3 s in `frame.seq`, not a dead stream; a gap over ~15 s means the
+glasses ended the session and the phone is restarting it. The stalls seen on 2026-09-16
+(2 runs of 5) were the old build. **Pull and restart the bridge** to pick up the stale-poller
+fix in `sensors.js`, or a command sent right after the app relaunches can be lost.
+
 ## Quirks worth knowing before you burn an hour
 
 - **Free-team provisioning profiles expire after 7 days.** The app then refuses to launch

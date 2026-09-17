@@ -111,18 +111,27 @@ Honest and incomplete:
   and a locked phone cannot be relaunched remotely — so the app reconnects by itself on
   any launch once a bridge is saved, and recovery is one tap on the icon.
 - `look.html` verified on the glasses browser: pinch → still on the display in ~5 s.
-- **Live frame stream** (`camera.stream.start`, 2026-09-15/16): the phone decodes the glasses'
-  HEVC in hardware and posts ~44 KB 480×854 JPEGs; the bridge keeps the newest at
-  `/api/sensors/frame.jpg`. Measured: 3.6 fps for 60 s with the app in the foreground, 3.2 fps
-  for 75 s with the phone **locked**, ~115–150 ms per upload, zero upload failures. Frames
-  are sharp enough to read a laptop screen layout. Two rough edges, both with fixes built
-  but **not yet verified on hardware**: the decoder dies when the app changes foreground
-  state (now rebuilt on `kVTInvalidSessionErr`), and one locked run decoded nothing at all
-  (now detected after 5 s and the camera stream restarted to force a keyframe).
+- **Live frame stream** (`camera.stream.start`): the phone decodes the glasses' HEVC in
+  hardware and posts JPEGs; the bridge keeps the newest at `/api/sensors/frame.jpg`.
+  Verified on hardware 2026-09-17, 60 s each, zero decode failures:
+
+  | `resolution` | frame | size | to the bridge (asked for 8 fps) | per upload |
+  |---|---|---|---|---|
+  | `medium` (default) | 504×896 | ~50 KB | 5.6 fps | ~90 ms |
+  | `high` | 720×1280 | ~89 KB | 5.2–5.7 fps | ~100–117 ms |
+
+  The glasses deliver 15 fps and a keyframe every 45 frames (3.0 s). That matters: one
+  frame damaged on the Bluetooth link poisons every dependent frame after it, which on
+  earlier builds stalled 2 runs in 5. The streamer now reads the NAL type from the bitstream
+  (DAT does not set `NotSync`), skips to the next keyframe after any decode error — a gap of
+  at most 3 s — and only tears the stream down if no keyframe follows. The resync path has
+  not been seen firing on hardware yet, because no error occurred in the verified runs.
+  Still unverified: recovery after the app changes foreground state mid-stream.
 - Right after a fresh Meta AI registration the glasses ended three sessions within a minute
   ("Session ended by device"); nothing since. Treat the first minute after approving as
-  unreliable. Registration itself dropped after some reinstalls and survived others —
-  budget one Meta AI tap per install.
+  unreliable. Registration drops when the installed build's **signing certificate changes**
+  (every time, 2026-09-14…16) and survives reinstalls signed with the same one (three in a
+  row, 2026-09-17). `device.sh` now keeps one certificate, so installs no longer cost a tap.
 - Android is a protocol away. Nothing here is shared with iOS except `PROTOCOL.md`, on
   purpose.
 

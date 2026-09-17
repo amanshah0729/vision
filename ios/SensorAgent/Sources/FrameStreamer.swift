@@ -35,6 +35,16 @@ final class FrameStreamer {
     private var lastDecodedAtStats = 0, lastReceivedAtStats = 0, stallReports = 0
     private var handlerErrors: [Int32: Int] = [:]
     private var lastStallAt = Date.distantPast
+    /// After any decode error every following P-frame fails too (they reference the lost
+    /// one), so feeding them is pointless: skip until the next keyframe, which resyncs the
+    /// decoder in a second or two. Seen on hardware: one `kVTVideoDecoderBadDataErr` 2–5 s
+    /// into a stream — a frame damaged on the Bluetooth link — poisoned everything after it.
+    /// Starts true so a decoder never begins on a P-frame either.
+    private var needKeyframe = true
+    private var errorAt: Date?
+    private var keyframes = 0, skipped = 0
+    private var detectionOff = false
+    private var lastKeyframeAt: Date?
     private let queue = DispatchQueue(label: "frame-streamer")
     private let ci = CIContext(options: [.useSoftwareRenderer: false])
     private var decoder: VTDecompressionSession?
@@ -89,8 +99,72 @@ final class FrameStreamer {
 
     // MARK: - decode → scale → jpeg → post (all on `queue`)
 
+    /// Is this an HEVC random-access picture (IDR/CRA/BLA — NAL types 16…23)? Read from the
+    /// bitstream because DAT does not set `kCMSampleAttachmentKey_NotSync`: on hardware every
+    /// buffer looked like a sync sample, so attachment-based detection skipped nothing and one
+    /// damaged frame still poisoned hundreds. Samples are length-prefixed NAL units (hvcC);
+    /// parameter sets and SEI may precede the slice, so walk until the first slice NAL.
+    private static func isKeyframe(_ buffer: CMSampleBuffer) -> Bool {
+        guard let desc = CMSampleBufferGetFormatDescription(buffer),
+              let block = CMSampleBufferGetDataBuffer(buffer) else { return true }
+        var lengthSize: Int32 = 4
+        CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(desc, parameterSetIndex: 0,
+            parameterSetPointerOut: nil, parameterSetSizeOut: nil,
+            parameterSetCountOut: nil, nalUnitHeaderLengthOut: &lengthSize)
+        let n = Int(lengthSize)
+        guard n >= 1, n <= 4 else { return true }
+        let total = CMBlockBufferGetDataLength(block)
+        var header = [UInt8](repeating: 0, count: n + 1)
+        var offset = 0
+        while offset + n + 1 <= total {
+            guard CMBlockBufferCopyDataBytes(block, atOffset: offset, dataLength: n + 1,
+                                             destination: &header) == kCMBlockBufferNoErr else { return true }
+            var length = 0
+            for i in 0..<n { length = (length << 8) | Int(header[i]) }
+            let type = (header[n] >> 1) & 0x3F
+            if (16...23).contains(type) { return true }     // IRAP slice
+            if type <= 9 { return false }                   // ordinary (dependent) slice
+            guard length > 0 else { return true }
+            offset += n + length                            // VPS/SPS/PPS/SEI — keep walking
+        }
+        return true
+    }
+
     private func decode(_ buffer: CMSampleBuffer) {
         guard let desc = CMSampleBufferGetFormatDescription(buffer) else { return }
+        // Safety valve: if the parser never sees a keyframe in the first ~3 s, it is wrong
+        // about this stream, and blocking on it would decode nothing at all. Fall back to
+        // treating every frame as decodable (the pre-detection behaviour).
+        if !detectionOff, keyframes == 0, received > 45 {
+            detectionOff = true
+            PoCLog.write("STREAM: no keyframe recognised in \(received) frames — detection off")
+        }
+        if detectionOff || Self.isKeyframe(buffer) {
+            keyframes += 1
+            let gap = lastKeyframeAt.map { Date().timeIntervalSince($0) }
+            lastKeyframeAt = Date()
+            if keyframes <= 6 || keyframes % 50 == 0 {
+                PoCLog.write("STREAM: keyframe #\(keyframes) at frame \(received)"
+                             + (gap.map { String(format: " (%.1fs since last)", $0) } ?? ""))
+            }
+            if needKeyframe, let errorAt {
+                PoCLog.write(String(format: "STREAM: resynced on keyframe %.1fs after the error, %d frames skipped",
+                                    Date().timeIntervalSince(errorAt), skipped))
+            }
+            needKeyframe = false
+            errorAt = nil
+        } else if needKeyframe {
+            skipped += 1
+            // No keyframe for a while after an error: the stream will not heal by itself.
+            if let errorAt, Date().timeIntervalSince(errorAt) > 4,
+               Date().timeIntervalSince(lastStallAt) >= 10, stallReports < 6 {
+                stallReports += 1
+                lastStallAt = Date()
+                PoCLog.write("STREAM: no keyframe 4s after an error — requesting fresh camera stream (#\(stallReports))")
+                onStall?()
+            }
+            return
+        }
         if decoder == nil || decoderFormat == nil
             || !CMFormatDescriptionEqual(desc, otherFormatDescription: decoderFormat) {
             // The glasses restart the encoder around a photo (new parameter sets), so a
@@ -125,6 +199,7 @@ final class FrameStreamer {
             guard status == noErr, let image else {
                 self.queue.async {
                     self.failed += 1
+                    if !self.needKeyframe { self.needKeyframe = true; self.errorAt = Date(); self.skipped = 0 }
                     let n = (self.handlerErrors[status] ?? 0) + 1
                     self.handlerErrors[status] = n
                     if n == 1 || n % 200 == 0 { PoCLog.write("STREAM: decode output error \(status) (x\(n))") }
@@ -139,6 +214,7 @@ final class FrameStreamer {
         }
         if status != noErr {
             failed += 1
+            if !needKeyframe { needKeyframe = true; errorAt = Date(); skipped = 0 }
             if failed % 200 == 1 { PoCLog.write("STREAM: decode call error \(status)") }
             // iOS invalidates hardware decoders when the app changes foreground state (seen on
             // hardware: unlock + foreground for 2 s → every frame kVTInvalidSessionErr until
@@ -199,7 +275,7 @@ final class FrameStreamer {
         lastDecodedAtStats = decoded
         let avgKB = posted > 0 ? bytes / posted / 1024 : 0
         let avgMs = posted > 0 ? postMs / posted : 0
-        PoCLog.write("STREAM: t=\(secs)s received=\(received) decoded=\(decoded) posted=\(posted) failed=\(failed) avg=\(avgKB)KB \(avgMs)ms/post inFlight=\(inFlight)")
+        PoCLog.write("STREAM: t=\(secs)s received=\(received) decoded=\(decoded) posted=\(posted) failed=\(failed) keyframes=\(keyframes) skipped=\(skipped) avg=\(avgKB)KB \(avgMs)ms/post inFlight=\(inFlight)")
     }
 }
 #endif

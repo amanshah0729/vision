@@ -104,6 +104,11 @@ function waitForCommands(deviceId, req) {
   return new Promise((resolve) => {
     if (!waiters.has(deviceId)) waiters.set(deviceId, []);
     const list = waiters.get(deviceId);
+    // One device, one poller. A waiter already parked here belongs to a previous instance of
+    // the client (app relaunched, connection not yet noticed dead) — and `enqueue` would hand
+    // the next command to it, where it vanishes. Seen on hardware: a command sent 6 s after a
+    // relaunch was never received. Release the stale waiter(s) empty before parking this one.
+    for (const stale of [...list]) stale([]);
     let done = false;
     const finish = (v) => {
       if (done) return;
