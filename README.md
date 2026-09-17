@@ -125,8 +125,8 @@ Honest and incomplete:
   frame damaged on the Bluetooth link poisons every dependent frame after it, which on
   earlier builds stalled 2 runs in 5. The streamer now reads the NAL type from the bitstream
   (DAT does not set `NotSync`), skips to the next keyframe after any decode error — a gap of
-  at most 3 s — and only tears the stream down if no keyframe follows. The resync path has
-  not been seen firing on hardware yet, because no error occurred in the verified runs.
+  at most 3 s — and only tears the stream down if no keyframe follows. Seen working on
+  hardware 2026-09-17: error → resync on the next IDR 1.7 s later, then clean.
   Still unverified: recovery after the app changes foreground state mid-stream.
 - **Display while the camera runs** (`display.show`, 2026-09-17). A DAT camera session takes
   the display away from the glasses *browser*: a web app goes black, camera light on, for as
@@ -135,9 +135,13 @@ Honest and incomplete:
   from the phone in the same `DeviceSession`. That works under plain Developer Mode
   (`MetaAppID "0"`, no Developer Center app): display alone up in 0.9 s, then the camera
   joined the same session and 12 updates went through at 40–100 ms each while it streamed —
-  confirmed in `poc.log` and by the wearer reading the counter. **Open problem:** with the
-  display active the video decoded badly (49 of 364 frames); suspected cause is resyncing on
-  CRA keyframes and then failing on their leading pictures. A fix is written, not verified.
+  confirmed in `poc.log` and by the wearer reading the counter. Video alongside it, second
+  run: 331 of 355 frames decoded, 72 posted in 25 s. One decoder error 4 s in
+  (`kVTInvalidSessionErr`) was recovered by the keyframe resync in 1.7 s (23 frames
+  skipped) — the first time that path has been seen working on hardware. The first run had
+  decoded only 49 of 364; keyframes turned out to be plain IDR (NAL 19), so the leading-
+  picture theory was wrong, and what fixed it was not re-arming the resync on errors in the
+  frames right after a keyframe.
 - Right after a fresh Meta AI registration the glasses ended three sessions within a minute
   ("Session ended by device"); nothing since. Treat the first minute after approving as
   unreliable. Registration drops when the installed build's **signing certificate changes**

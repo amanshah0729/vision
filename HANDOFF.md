@@ -62,7 +62,9 @@ session. Updates cost 40–100 ms. `display.clear` blanks it. Verified on hardwa
 (display + camera together). The web page is still the launcher: open it, pinch Start, it
 sends `camera.stream.start`, the browser goes dark and the phone-drawn display takes over.
 Requires the bridge to be on the current `sensors.js` (the old one rejects unknown actions).
-Known issue: video decode degrades while the display is active — being worked on the Pro.
+Video keeps flowing alongside it: 331 of 355 frames decoded in the verified run, with one
+decoder error self-healed in 1.7 s. Keep updates modest (a few per second at most); each
+one shares the Bluetooth link with the video.
 
 ## Quirks worth knowing before you burn an hour
 
