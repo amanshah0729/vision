@@ -41,6 +41,14 @@ final class GlassesCamera {
     private var session: DeviceSession?
     private var camera: Camera?
     private var tokens: [any AnyListenerToken] = []
+    /// Resolution for the next stream bring-up. `.medium` is 504×896, `.high` 720×1280. Stills
+    /// are 1080×1440 regardless; this only matters to the live frame stream.
+    var resolution: StreamingResolution = .medium
+    /// Attached to the video publisher *before* `stream.start()`, so the stream's first
+    /// keyframe cannot slip past between `start()` and the `.streaming` transition. A decoder
+    /// that misses it fails every frame with `kVTVideoDecoderReferenceMissingErr` (-17694)
+    /// until the next keyframe — which on this link can be a long time coming.
+    private var pendingFrameHandler: (@Sendable (CMSampleBuffer) -> Void)?
 
     // MARK: - Access
 
@@ -150,7 +158,7 @@ final class GlassesCamera {
             // never delivers video frames, and one session now serves both stills and the live
             // frame stream (`startFrames`). Photos still come back as full 1080×1440 JPEGs.
             try session.addCamera(config: StreamConfiguration(videoCodec: .hvc1,
-                                                              resolution: .medium,
+                                                              resolution: resolution,
                                                               frameRate: 15))
         }()
         guard let camera else { throw Failure.cameraUnavailable }
@@ -177,6 +185,9 @@ final class GlassesCamera {
             PoCLog.write("CAMERA: camera state = \(state)")
         })
 
+        if let handler = pendingFrameHandler {
+            frameToken = stream.videoFramePublisher.listen { frame in handler(frame.sampleBuffer) }
+        }
         stream.start()
         try await Self.bounded(30, "stream start") { await live.wait() }.get()
         return stream
@@ -202,7 +213,19 @@ final class GlassesCamera {
         }
         guard selector.activeDevice != nil else { throw Failure.sessionEnded }
 
-        let session = try wearables.createSession(deviceSelector: selector)
+        // `session.stop()` returns before DAT has actually released the device, and a
+        // `createSession` in that window throws "A session already exists for this device"
+        // (seen on hardware during a stall restart). Retry briefly rather than fail the command.
+        var made: DeviceSession?
+        for attempt in 1...6 {
+            do { made = try wearables.createSession(deviceSelector: selector); break }
+            catch {
+                PoCLog.write("CAMERA: createSession attempt \(attempt) failed: \(error.localizedDescription)")
+                if attempt == 6 { throw error }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+        guard let session = made else { throw Failure.sessionEnded }
         self.session = session
 
         // Subscribe *before* start() so the `.started` transition can't be missed — the same
@@ -235,10 +258,35 @@ final class GlassesCamera {
     /// Tap the live video: `handler` gets every compressed HEVC sample buffer off the glasses
     /// (~15–30/s). Brings the session/stream up if needed. The caller decodes and throttles;
     /// this hands over raw buffers because skipping P-frames before the decoder breaks it.
-    func startFrames(_ handler: @escaping @Sendable (CMSampleBuffer) -> Void) async throws {
-        let stream = try await liveStream()
+    ///
+    /// `fresh` tears the DAT session down first and brings up a new stream, so the consumer's
+    /// decoder starts on a keyframe. Attaching a new decoder to a stream that is already
+    /// mid-flight (the session is kept warm between stills) is what stalled 2 of 5 runs on
+    /// hardware. Costs ~3 s; always use it for a new stream, never for a still.
+    func startFrames(fresh: Bool = true,
+                     resolution: StreamingResolution? = nil,
+                     _ handler: @escaping @Sendable (CMSampleBuffer) -> Void) async throws {
+        if let resolution, resolution != self.resolution { self.resolution = resolution }
+        if fresh { await shutdown() }
         stopFrames()
-        frameToken = stream.videoFramePublisher.listen { frame in handler(frame.sampleBuffer) }
+        pendingFrameHandler = handler
+        defer { pendingFrameHandler = nil }
+        if let camera, camera.stream.state == .streaming {
+            frameToken = camera.stream.videoFramePublisher.listen { frame in handler(frame.sampleBuffer) }
+            return
+        }
+        _ = try await liveStream()
+    }
+
+    /// `stop()`, then wait until DAT reports the session fully `.stopped` (≤5 s).
+    func shutdown() async {
+        let old = session
+        stop()
+        guard let old else { return }
+        let deadline = Date().addingTimeInterval(5)
+        while old.state != .stopped && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
     }
 
     func stopFrames() {

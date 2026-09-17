@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import MWDATCamera
 import SwiftUI
 import UIKit
 
@@ -158,6 +159,14 @@ final class AgentController: ObservableObject {
                 if let v = command.number("maxWidth"), v > 0 { cfg.maxWidth = Int(min(v, 1280)) }
                 if let v = command.number("quality"), v > 0, v <= 1 { cfg.quality = v }
                 if let v = command.number("maxSeconds"), v > 0 { cfg.maxSeconds = min(v, 3600) }
+                // Source resolution off the glasses: low / medium (504×896, default) / high
+                // (720×1280). Higher costs frame rate on the Bluetooth link.
+                let res: StreamingResolution? = switch command.string("resolution") {
+                    case "low": .low
+                    case "high": .high
+                    case "medium": .medium
+                    default: nil
+                }
                 stopStream()
                 let s = FrameStreamer(config: cfg, client: client) { [weak self] in
                     Task { @MainActor in self?.stopStream(); self?.status = "online" }
@@ -169,13 +178,11 @@ final class AgentController: ObservableObject {
                     Task { @MainActor in
                         guard let self, let s, self.streamer === s else { return }
                         PoCLog.write("AGENT: restarting camera stream after decode stall")
-                        self.camera.stopFrames()
-                        self.camera.stop()
-                        do { try await self.camera.startFrames { buffer in s.handle(buffer) } }
+                        do { try await self.camera.startFrames(fresh: true) { buffer in s.handle(buffer) } }
                         catch { PoCLog.write("AGENT: restart FAILED \(error.localizedDescription)") }
                     }
                 }
-                try await camera.startFrames { buffer in s.handle(buffer) }
+                try await camera.startFrames(fresh: true, resolution: res) { buffer in s.handle(buffer) }
             } catch {
                 PoCLog.write("AGENT: camera.stream.start FAILED \(error) — \(error.localizedDescription)")
                 stopStream()

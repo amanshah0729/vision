@@ -108,7 +108,7 @@ idempotent and user-retriable rather than guaranteed.
 | `mic.start` | `{}` | begin dictation, stream partials |
 | `mic.stop` | `{}` | end dictation, emit a final |
 | `camera.still` | `{}` | capture one JPEG and POST it |
-| `camera.stream.start` | `{ fps?, maxWidth?, quality?, maxSeconds? }` | post small JPEG frames to `/api/sensors/frame` at ≤`fps` (default 3, max 10), scaled to `maxWidth` px (default 480), JPEG `quality` (default 0.6), for at most `maxSeconds` (default 600) |
+| `camera.stream.start` | `{ fps?, maxWidth?, quality?, maxSeconds?, resolution? }` | post JPEG frames to `/api/sensors/frame` at ≤`fps` (default 3, max 10), scaled *down* to `maxWidth` px (default 480), JPEG `quality` (default 0.6), for at most `maxSeconds` (default 600). `resolution` picks the source off the glasses: `"low"`, `"medium"` (504×896, default) or `"high"` (720×1280). `maxWidth` above the source width does nothing — frames are never upscaled. Every start brings up a fresh camera stream (~3 s) so the decoder begins on a keyframe |
 | `camera.stream.stop` | `{}` | stop posting frames |
 
 ## Glasses (web app) → bridge

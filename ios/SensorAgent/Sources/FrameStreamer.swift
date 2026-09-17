@@ -34,6 +34,7 @@ final class FrameStreamer {
     var onStall: (@Sendable () -> Void)?
     private var lastDecodedAtStats = 0, lastReceivedAtStats = 0, stallReports = 0
     private var handlerErrors: [Int32: Int] = [:]
+    private var lastStallAt = Date.distantPast
     private let queue = DispatchQueue(label: "frame-streamer")
     private let ci = CIContext(options: [.useSoftwareRenderer: false])
     private var decoder: VTDecompressionSession?
@@ -181,10 +182,17 @@ final class FrameStreamer {
 
     private func logStats() {
         let secs = Int(Date().timeIntervalSince(started))
-        // Stall: frames arrived since the last tick but nothing decoded. Ask for a restart.
-        if !stopped, received > lastReceivedAtStats + 20, decoded == lastDecodedAtStats {
+        // Stall: nothing decoded since the last tick — either frames arrive but fail (decoder
+        // lost its reference) or none arrive at all (the glasses ended the session; seen on
+        // hardware as "Session ended by device"). Ask the owner for a fresh stream. At most
+        // once per 10 s and 6 times per stream, so a dead pair cannot spin this forever.
+        let quiet = decoded == lastDecodedAtStats
+        if !stopped, secs >= 8, quiet, stallReports < 6,
+           Date().timeIntervalSince(lastStallAt) >= 10 {
             stallReports += 1
-            PoCLog.write("STREAM: stall #\(stallReports) — \(received - lastReceivedAtStats) frames in, 0 decoded; requesting camera restart")
+            lastStallAt = Date()
+            let arrived = received - lastReceivedAtStats
+            PoCLog.write("STREAM: stall #\(stallReports) — \(arrived) frames in, 0 decoded; requesting fresh camera stream")
             onStall?()
         }
         lastReceivedAtStats = received

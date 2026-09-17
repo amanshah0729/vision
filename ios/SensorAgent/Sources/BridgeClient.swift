@@ -17,6 +17,11 @@ public struct BridgeCommand: Decodable, Sendable {
         if case let .number(n)? = args?[key] { return n }
         return nil
     }
+
+    public func string(_ key: String) -> String? {
+        if case let .string(s)? = args?[key] { return s }
+        return nil
+    }
 }
 
 public enum JSONValue: Decodable, Sendable {
