@@ -31,22 +31,15 @@ Everything below is on `main`, pushed, and the matching build is installed on th
 - Phone logs: only from the Pro (`ios/SensorAgent/device.sh log`). From the Air, rely on the
   bridge's view (`/api/sensors`, `frame.seq`, `still.at`).
 
-## Next project: card counting (all bridge-side)
+## Card counting lives in its own repo — do not build it here
 
-Architecture agreed with Aman, no iOS changes:
-
-1. `camera.stream.start {fps: 4, maxWidth: 640}` from a small glasses page.
-2. A worker on the Air polls `frame.seq` and runs a playing-card detector (YOLO-class, public
-   card datasets exist) on each new frame. Not OCR.
-3. Count each card **once**: track by position across frames, count on first stable
-   appearance, ignore while it persists. Keep running count, cards seen, decks remaining;
-   true count = running / decks left. Expose `GET /count` JSON.
-4. Glasses page polls `/count` twice a second and shows running + true count in big type;
-   pinch = reset at shuffle. 600×600, D-pad only, black is transparent — see `../CLAUDE.md`.
-
-Expect the detector to be the real work; collect frames from the glasses at an actual table
-to tune. Aman knows the legal caveat (device-assisted counting in a casino is a crime in
-Nevada and most jurisdictions); this is a home/build project.
+The counter exists: **amanshah0729/cardcount**, cloned beside this repo as
+`../cardcount`, running on the Air as LaunchAgent `com.cardcount` (port 8792,
+`count.orthosoftwaresucks.com`). It is a *client* of this bridge — it uses only
+`PROTOCOL.md` (`GET /api/sensors`, `frame.jpg`, `POST /api/sensors/command`) and
+nothing in vision was changed for it. Keep it that way: vision is the open-source
+sensor bridge and stays generic. If the counter needs something the bridge does not
+expose, add it here as a generic feature, not as a counting feature.
 
 ## Quirks worth knowing before you burn an hour
 
