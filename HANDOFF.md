@@ -43,6 +43,11 @@ expose, add it here as a generic feature, not as a counting feature.
 
 ## Quirks worth knowing before you burn an hour
 
+- **Free-team provisioning profiles expire after 7 days.** The app then refuses to launch
+  ("crashes" on open). Fix is on the Pro: `PROVISION=1 ./device.sh build && ./device.sh install`,
+  then one Meta AI approval with the glasses on. Same symptom if a certificate gets re-minted
+  without reinstalling.
+
 - `device.sh bridge <url> <token>` launch args did not override the saved bridge in one
   test; the saved bridge is the public one, so it does not matter for the Air.
 - The stream's `maxSeconds` defaults to 600; the glasses' battery lasts a few streaming runs.

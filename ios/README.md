@@ -72,6 +72,14 @@ and grants codesign access to it, so builds never ask for the Mac login password
 `PROVISION=1` build mints the certificate straight into that keychain. Xcode's own builds
 find it too, since the keychain is on the search list.
 
+**Minting a certificate has two side effects — always reinstall right after.** On a free
+team a new certificate revokes the previous one, and iOS will not launch an app signed with
+a revoked certificate: it dies instantly on open, which looks like a crash (2026-09-16).
+And DAT's registration dropped every time the installed build's certificate changed, so
+the first capture after such an install re-opens Meta AI for approval (glasses on, or Meta
+AI bounces it). With one stable certificate neither happens; avoid `PROVISION=1` unless the
+profile has expired (free-team profiles last 7 days).
+
 ## Free team vs paid team
 
 Camera frames travel over one of two links. Bluetooth Classic (ExternalAccessory, ~8 fps)
